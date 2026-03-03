@@ -14,8 +14,8 @@ import numpy as np
 LATTICE_D = 2
 LATTICE_Q = 9
 
+# 9 directions of D2Q9 lattice
 LATTICE_C = np.zeros([LATTICE_Q, LATTICE_D])
-
 LATTICE_C[0,:] = np.array([0,0])
 LATTICE_C[1,:] = np.array([1,0])
 LATTICE_C[2,:] = np.array([0,1])
@@ -26,13 +26,16 @@ LATTICE_C[6,:] = np.array([-1, 1])
 LATTICE_C[7,:] = np.array([-1, -1])
 LATTICE_C[8,:] = np.array([1, -1])
 
+# weights of the D2Q9 lattice
 LATTICE_W = np.zeros(LATTICE_Q)
 LATTICE_W[0] = 4./9.
 LATTICE_W[1:5] = 1./9.
 LATTICE_W[5:] = 1./36.
 
+# x and y components of the lattice velocities
 LATTICE_CX = LATTICE_C[:,0]
 LATTICE_CY = LATTICE_C[:,1]
+
 LATTICE_INVCS2 = 3.
 
 
@@ -56,6 +59,7 @@ def flow_properties(N: np.array) -> tuple[float, np.array[float], np.array[float
     u = np.sum(N * LATTICE_CX) / rho
     v = np.sum(N * LATTICE_CY) / rho
     return rho, u, v
+
 
 rho, u, v = [1., 0.1, 0.]
 N = equilibirum_from_moments(rho, u, v)
