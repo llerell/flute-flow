@@ -19,7 +19,9 @@ const int* Cx = new int [LATTICE_Q] {0,0,0,-1,0,1,-1,-1,1};
 const int* Cy = new int [LATTICE_Q] {0,0,1,0,-1,1,1,-1,-1};
 
 void equilibrium_from_moments(float* rho, float* u, float* v){
-    
+    float* p(float*a, float*b){
+        return a;
+    }
 }
 int idx(int i, int j, int q) {
     return q + LATTICE_Q * (j + SIZE_Y * i);

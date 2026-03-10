@@ -2,7 +2,7 @@ class point {
     public:
     float x,y;
     point(float x, float y) : x(x), y(y) {}
-}
+};
 
 class Vec2 {
     public:
@@ -11,7 +11,7 @@ class Vec2 {
     
     
 
-}
+};
 
 int idx(int i, int j, int q);
 void calc_permutation(int* P);
