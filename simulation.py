@@ -68,6 +68,7 @@ def get_walls_from_image(path):
     walls = np.argwhere(np.sum(img, axis=2)<20)
     # red pixels are the left boundary condition
     P_BC_LEFT = np.argwhere((img[:,:,0]>200) & (img[:,:,1]<20) & (img[:,:,2]<20))
+    # blue pixels are the right boundary condition
     P_BC_RIGHT = np.argwhere((img[:,:,0]<20) & (img[:,:,1]<20) & (img[:,:,2]>200))
     return walls, size_x, size_y, P_BC_LEFT, P_BC_RIGHT
 
@@ -112,6 +113,7 @@ def equilibrium_from_moments(rho: np.array, u: np.array, v: np.array) -> np.arra
     
     vc = LATTICE_INVCS2 * (  p(u, LATTICE_CX) 
                            + p(v, LATTICE_CY))
+
     Neq = p(rho, LATTICE_W) * (  vc 
                                + vc*vc/2
                                - p(u*u + v*v, np.ones(LATTICE_Q)) * LATTICE_INVCS2/2.
@@ -183,24 +185,23 @@ def wall_permutation(Pm, walls):
 
 def pressure_bc_left(N, idx, rho):
     N2D = np.reshape(N, (SIZE_X * SIZE_Y, LATTICE_Q))
-    rho_in = rho - np.sum(N2D[idx, :], axis=1) + N2D[idx, 1] + N2D[idx, 5] + N2D[idx, 8]
-    rho_ux = rho_in - N2D[idx, 0] + N2D[idx, 2] +  N2D[idx, 4] + 2 * (N2D[idx, 3] + N2D[idx, 6] + N2D[idx, 7])
+
+    rho_ux = rho - (N2D[idx, 0] + N2D[idx, 2] + N2D[idx, 4]) - 2.*(N2D[idx, 3] + N2D[idx, 6] + N2D[idx, 7])
 
     N2D[idx, 1] = N2D[idx, 3] + (2./3.)*rho_ux
-    N2D[idx, 5] = N2D[idx, 7] - (1./2.)*(N2D[idx, 2]-N2D[idx, 4]) + (1./6.)*rho_in
-    N2D[idx, 8] = N2D[idx, 6] + (1./2.)*(N2D[idx, 2]-N2D[idx, 4]) + (1./6.)*rho_in
+    N2D[idx, 5] = N2D[idx, 7] - (1./2.)*(N2D[idx, 2]-N2D[idx, 4]) + (1./6.)*rho_ux
+    N2D[idx, 8] = N2D[idx, 6] + (1./2.)*(N2D[idx, 2]-N2D[idx, 4]) + (1./6.)*rho_ux
     
     return np.reshape(N2D, (SIZE_X, SIZE_Y, LATTICE_Q))
 
 
 def pressure_bc_right(N, idx, rho):
     N2D = np.reshape(N, (SIZE_X * SIZE_Y, LATTICE_Q))
-    rho_in = rho - np.sum(N2D[idx, :], axis=1) + N2D[idx, 3] + N2D[idx, 6] + N2D[idx, 7]
-    rho_ux = rho_in - N2D[idx, 0] + N2D[idx, 2] +  N2D[idx, 4] + 2 * (N2D[idx, 1] + N2D[idx, 5] + N2D[idx, 8])
+    rho_ux = rho - (N2D[idx, 0] + N2D[idx, 2] +  N2D[idx, 4]) - 2 * (N2D[idx, 1] + N2D[idx, 5] + N2D[idx, 8])
 
-    N2D[idx, 3] = N2D[idx, 1] + (2./3.)*rho_in
-    N2D[idx, 6] = N2D[idx, 8] - (1./2.)*(N2D[idx, 2]-N2D[idx, 4]) + (1./6.)*rho_in
-    N2D[idx, 7] = N2D[idx, 5] + (1./2.)*(N2D[idx, 2]-N2D[idx, 4]) + (1./6.)*rho_in
+    N2D[idx, 3] = N2D[idx, 1] + (2./3.)*rho_ux
+    N2D[idx, 6] = N2D[idx, 8] - (1./2.)*(N2D[idx, 2]-N2D[idx, 4]) + (1./6.)*rho_ux
+    N2D[idx, 7] = N2D[idx, 5] + (1./2.)*(N2D[idx, 2]-N2D[idx, 4]) + (1./6.)*rho_ux
     
     return np.reshape(N2D, (SIZE_X, SIZE_Y, LATTICE_Q))
 
@@ -221,9 +222,12 @@ def main():
     P = calc_permutation()
     w_p = wall_permutation(P, WALLS)
     
-    for t in range(75):
+    
+    for t in range(500):
+
+
         N = stream(N, w_p)
-        N = pressure_bc_left(N, idx_P_BC_LEFT, 1.01)
+        N = pressure_bc_left(N, idx_P_BC_LEFT, 1.02)
         N = pressure_bc_right(N, idx_P_BC_RIGHT, 1.)
 
 
@@ -234,7 +238,7 @@ def main():
         if np.isnan(N).any():
             print(f"Instability detected at step {t}!")
             break
-
+        
     print("done")
 
 if __name__ == "__main__":
