@@ -40,7 +40,6 @@ LATTICE_CX = LATTICE_C[:,0]
 LATTICE_CY = LATTICE_C[:,1]
 
 # bounce-back
-
 LATTICE_BB = np.ones(LATTICE_Q, dtype=np.int32)
 LATTICE_BB[0] = 0 
 LATTICE_BB[1] = 3
@@ -51,12 +50,12 @@ LATTICE_BB[5] = 7
 LATTICE_BB[6] = 8 
 LATTICE_BB[7] = 5
 LATTICE_BB[8] = 6 
+
 # inverse of the square of the speed of sound in the lattice
 LATTICE_INVCS2 = 3.
 
-# dimensions of the simulation grid
 
-NU = 0.01
+NU = 0.05
 TAU = NU*LATTICE_INVCS2 + 1./2.
 
 
@@ -67,26 +66,41 @@ def get_walls_from_image(path):
     img = imageio.imread(path)
     size_x, size_y = img.shape[:2]
     walls = np.argwhere(np.sum(img, axis=2)<20)
-    return walls, size_x, size_y
+    # red pixels are the left boundary condition
+    P_BC_LEFT = np.argwhere((img[:,:,0]>200) & (img[:,:,1]<20) & (img[:,:,2]<20))
+    P_BC_RIGHT = np.argwhere((img[:,:,0]<20) & (img[:,:,1]<20) & (img[:,:,2]>200))
+    return walls, size_x, size_y, P_BC_LEFT, P_BC_RIGHT
 
-  
-WALLS, SIZE_X, SIZE_Y = get_walls_from_image("assets/image.png")
+# dimensions of the simulation grid and simulated walls 
+WALLS, SIZE_X, SIZE_Y, P_BC_LEFT, P_BC_RIGHT = get_walls_from_image("assets/image.png")
 points = np.zeros([SIZE_X, SIZE_Y, LATTICE_Q, LATTICE_D])
 
+print(f"number of high pressure points: {len(P_BC_LEFT)}")
+print(f"number of low pressure points: {len(P_BC_RIGHT)}")
 
-def save_to_vtk(N, name):
+def idx_noq(i,j):
+    return (j + SIZE_Y * i)
+
+i_P_BC_LEFT = P_BC_LEFT[:, 0]
+j_P_BC_LEFT = P_BC_LEFT[:, 1]
+idx_P_BC_LEFT = idx_noq(i_P_BC_LEFT, j_P_BC_LEFT)
+
+i_P_BC_RIGHT = P_BC_RIGHT[:, 0]
+j_P_BC_RIGHT = P_BC_RIGHT[:, 1]
+idx_P_BC_RIGHT = idx_noq(i_P_BC_RIGHT, j_P_BC_RIGHT)
+
+def save_to_vtk(rho, u, v, name):
     if not os.path.exists("images"):
         os.makedirs("images")
 
-    rho, u, v = flow_properties(N)
+
     u = np.reshape(u , (SIZE_X, SIZE_Y, 1), order='C')
     v = np.reshape(v , (SIZE_X, SIZE_Y, 1), order='C')
     rho = np.reshape(rho, (SIZE_X, SIZE_Y, 1), order='C')
     vtkhl.imageToVTK(f"images/{name}_{next(cpt)}",
     pointData={"p": rho - 1., "u": u, "v": v}) 
-    
 
-   
+
 def equilibrium_distribution(N: np.array) -> np.array:
     rho, u, v = flow_properties(N)
     return equilibrium_from_moments(rho, u, v)
@@ -119,7 +133,6 @@ def collide(N):
 
 def idx(i,j,q):
     return q + LATTICE_Q * (j + SIZE_Y * i)
-
 
 def calc_permutation():
     P = np.zeros(SIZE_X * SIZE_Y * LATTICE_Q, dtype=np.int32)
@@ -158,6 +171,39 @@ def wall_permutation(Pm, walls):
                 w_p[idx(x, y, q)], w_p[idx(i, j, LATTICE_BB[q])] = Pm[idx(i, j, LATTICE_BB[q])], Pm[idx(x, y, q)] 
     return w_p
 
+#=========================================
+
+# 6   2   5
+#  \  |  /
+# 3---0---1  
+#  /  |  \
+# 7   4   8
+
+#=========================================
+
+def pressure_bc_left(N, idx, rho):
+    N2D = np.reshape(N, (SIZE_X * SIZE_Y, LATTICE_Q))
+    rho_in = rho - np.sum(N2D[idx, :], axis=1) + N2D[idx, 1] + N2D[idx, 5] + N2D[idx, 8]
+    rho_ux = rho_in - N2D[idx, 0] + N2D[idx, 2] +  N2D[idx, 4] + 2 * (N2D[idx, 3] + N2D[idx, 6] + N2D[idx, 7])
+
+    N2D[idx, 1] = N2D[idx, 3] + (2./3.)*rho_ux
+    N2D[idx, 5] = N2D[idx, 7] - (1./2.)*(N2D[idx, 2]-N2D[idx, 4]) + (1./6.)*rho_in
+    N2D[idx, 8] = N2D[idx, 6] + (1./2.)*(N2D[idx, 2]-N2D[idx, 4]) + (1./6.)*rho_in
+    
+    return np.reshape(N2D, (SIZE_X, SIZE_Y, LATTICE_Q))
+
+
+def pressure_bc_right(N, idx, rho):
+    N2D = np.reshape(N, (SIZE_X * SIZE_Y, LATTICE_Q))
+    rho_in = rho - np.sum(N2D[idx, :], axis=1) + N2D[idx, 3] + N2D[idx, 6] + N2D[idx, 7]
+    rho_ux = rho_in - N2D[idx, 0] + N2D[idx, 2] +  N2D[idx, 4] + 2 * (N2D[idx, 1] + N2D[idx, 5] + N2D[idx, 8])
+
+    N2D[idx, 3] = N2D[idx, 1] + (2./3.)*rho_in
+    N2D[idx, 6] = N2D[idx, 8] - (1./2.)*(N2D[idx, 2]-N2D[idx, 4]) + (1./6.)*rho_in
+    N2D[idx, 7] = N2D[idx, 5] + (1./2.)*(N2D[idx, 2]-N2D[idx, 4]) + (1./6.)*rho_in
+    
+    return np.reshape(N2D, (SIZE_X, SIZE_Y, LATTICE_Q))
+
 
 def bounce_back(Nm, w_p):
     N = np.reshape(
@@ -171,20 +217,25 @@ def main():
     rho = np.ones((SIZE_X, SIZE_Y))
     u = 0. * np.ones((SIZE_X, SIZE_Y))
     v = 0. * np.ones((SIZE_X, SIZE_Y))
-    rho[20:25, 20:25] = 1.015
     N = equilibrium_from_moments(rho, u, v)
     P = calc_permutation()
     w_p = wall_permutation(P, WALLS)
-
-    for t in range(500):
+    
+    for t in range(75):
         N = stream(N, w_p)
+        N = pressure_bc_left(N, idx_P_BC_LEFT, 1.01)
+        N = pressure_bc_right(N, idx_P_BC_RIGHT, 1.)
+
+
         N = collide(N)
-        save_to_vtk(N, "test")
+        rho, u, v = flow_properties(N)
+        save_to_vtk(rho, u, v, "test")
 
         if np.isnan(N).any():
             print(f"Instability detected at step {t}!")
             break
 
+    print("done")
 
 if __name__ == "__main__":
     main()
