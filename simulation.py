@@ -1,4 +1,5 @@
 import numpy as np
+import pyopencl as cl
 import os
 from evtk import hl as vtkhl
 import imageio.v2 as imageio
@@ -12,7 +13,6 @@ import imageio.v2 as imageio
 # 7   4   8
 
 #=========================================
-
 
 LATTICE_D = 2
 LATTICE_Q = 9
@@ -56,7 +56,7 @@ LATTICE_INVCS2 = 3.
 
 
 NU = 0.05
-TAU = NU*LATTICE_INVCS2 + 1./2.
+
 
 
 
@@ -66,29 +66,24 @@ def get_walls_from_image(path):
     img = imageio.imread(path)
     size_x, size_y = img.shape[:2]
     walls = np.argwhere(np.sum(img, axis=2)<20)
-    # red pixels are the left boundary condition
-    P_BC_LEFT = np.argwhere((img[:,:,0]>200) & (img[:,:,1]<20) & (img[:,:,2]<20))
-    # blue pixels are the right boundary condition
-    P_BC_RIGHT = np.argwhere((img[:,:,0]<20) & (img[:,:,1]<20) & (img[:,:,2]>200))
-    return walls, size_x, size_y, P_BC_LEFT, P_BC_RIGHT
+    # red pixels are the top boundary condition
+    bc_top = np.argwhere((img[:,:,0]>200) & (img[:,:,1]<20) & (img[:,:,2]<20))
+    # blue pixels are the bottom boundary condition
+    bc_bottom = np.argwhere((img[:,:,0]<20) & (img[:,:,1]<20) & (img[:,:,2]>200))
+    return walls, size_x, size_y, bc_top, bc_bottom
 
 # dimensions of the simulation grid and simulated walls 
-WALLS, SIZE_X, SIZE_Y, P_BC_LEFT, P_BC_RIGHT = get_walls_from_image("assets/image.png")
+WALLS, SIZE_X, SIZE_Y, bc_top, bc_bottom = get_walls_from_image("assets/simu_r.png")
 points = np.zeros([SIZE_X, SIZE_Y, LATTICE_Q, LATTICE_D])
 
-print(f"number of high pressure points: {len(P_BC_LEFT)}")
-print(f"number of low pressure points: {len(P_BC_RIGHT)}")
+print(f"number of high pressure points: {len(bc_top)}")
+print(f"number of low pressure points: {len(bc_bottom)}")
 
 def idx_noq(i,j):
     return (j + SIZE_Y * i)
 
-i_P_BC_LEFT = P_BC_LEFT[:, 0]
-j_P_BC_LEFT = P_BC_LEFT[:, 1]
-idx_P_BC_LEFT = idx_noq(i_P_BC_LEFT, j_P_BC_LEFT)
 
-i_P_BC_RIGHT = P_BC_RIGHT[:, 0]
-j_P_BC_RIGHT = P_BC_RIGHT[:, 1]
-idx_P_BC_RIGHT = idx_noq(i_P_BC_RIGHT, j_P_BC_RIGHT)
+
 
 def save_to_vtk(rho, u, v, name):
     if not os.path.exists("images"):
@@ -128,8 +123,8 @@ def flow_properties(N: np.array) -> tuple[np.array, np.array, np.array]:
     return rho, u, v
 
 
-def collide(N):
-    Nm = N - (N - equilibrium_distribution(N))/TAU
+def collide(N, tau):
+    Nm = N - (N - equilibrium_distribution(N))/tau
     return Nm
 
 
@@ -183,7 +178,7 @@ def wall_permutation(Pm, walls):
 
 #=========================================
 
-def pressure_bc_left(N, idx, rho):
+def pressure_bc_top(N, idx, rho):
     N2D = np.reshape(N, (SIZE_X * SIZE_Y, LATTICE_Q))
 
     rho_ux = rho - (N2D[idx, 0] + N2D[idx, 2] + N2D[idx, 4]) - 2.*(N2D[idx, 3] + N2D[idx, 6] + N2D[idx, 7])
@@ -195,7 +190,7 @@ def pressure_bc_left(N, idx, rho):
     return np.reshape(N2D, (SIZE_X, SIZE_Y, LATTICE_Q))
 
 
-def pressure_bc_right(N, idx, rho):
+def pressure_bc_bottom(N, idx, rho):
     N2D = np.reshape(N, (SIZE_X * SIZE_Y, LATTICE_Q))
     rho_ux = rho - (N2D[idx, 0] + N2D[idx, 2] +  N2D[idx, 4]) - 2 * (N2D[idx, 1] + N2D[idx, 5] + N2D[idx, 8])
 
@@ -205,6 +200,16 @@ def pressure_bc_right(N, idx, rho):
     
     return np.reshape(N2D, (SIZE_X, SIZE_Y, LATTICE_Q))
 
+BC_VEL_TOP    = [0, 1, 3, 4, 7, 8, 2, 5, 6]
+BC_VEL_BOTTOM = [0, 1, 3, 2, 6, 5, 4, 8, 7]
+
+def velocity_bc(N, idx, bc_vel, un, ut):
+    N2D = np.reshape(N, (SIZE_X * SIZE_Y, LATTICE_Q))
+    rho = (N2D[idx, bc_vel[0]] + N2D[idx, bc_vel[1]] + N2D[idx, bc_vel[2]] + 2 * (N2D[idx, bc_vel[3]] + N2D[idx, bc_vel[4]] + N2D[idx, bc_vel[5]]))/(1. - un)
+    N2D[idx, bc_vel[6]] = N2D[idx, bc_vel[3]] + 2./3. * rho * un
+    N2D[idx, bc_vel[7]] = N2D[idx, bc_vel[4]] - 0.5 * (N2D[idx, bc_vel[1]] - N2D[idx, bc_vel[2]]) + 1./6. * rho * (un + ut)
+    N2D[idx, bc_vel[8]] = N2D[idx, bc_vel[5]] + 0.5 * (N2D[idx, bc_vel[1]] - N2D[idx, bc_vel[2]]) + 1./6. * rho * (un - ut)
+    return np.reshape(N2D, (SIZE_X, SIZE_Y, LATTICE_Q))
 
 def bounce_back(Nm, w_p):
     N = np.reshape(
@@ -213,33 +218,127 @@ def bounce_back(Nm, w_p):
         )
     return N
 
+def build_cl_obj(source_file):
+    ctx = cl.create_some_context()
+    queue = cl.CommandQueue(ctx)
+    try:
+        with open(source_file) as f:
+            prg = cl.Program(ctx, f.read()).build()
+    except Exception as e:
+        print("Error building OpenCL program:")
+        print(e)
+        raise
 
-def main():
+    return ctx, queue, prg
+
+def build_cl_buf(ctx, N, P, idx_bc_top, idx_bc_bottom):
+    mf = cl.mem_flags
+    N_g = cl.Buffer(ctx, mf.READ_WRITE | mf.COPY_HOST_PTR, hostbuf=N)
+    P_g = cl.Buffer(ctx, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=P)
+    idx_bc_top_g = cl.Buffer(ctx, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=idx_bc_top)
+    idx_bc_bottom_g = cl.Buffer(ctx, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=idx_bc_bottom)
+    M_g = cl.Buffer(ctx, mf.READ_WRITE, N.nbytes)
+
+    return N_g, M_g, P_g, idx_bc_top_g, idx_bc_bottom_g
+
+def get_velocity(t):
+    vel = min(t / 5000., 1.) * 0.05
+    velx = 0
+    if (t > 5000 and t < 7000):
+        velx = 0.05 * np.sin((t - 5000.)/2000. * np.pi)
+    return np.float64(vel), np.float64(velx)
+
+def get_indexes_from_image(path):
+    img = imageio.imread(path)
+    size_x, size_y = img.shape[:2]
+    walls = np.argwhere(np.sum(img, axis=2)<20)
+    # red pixels are the top boundary condition
+    bc_top = np.argwhere((img[:,:,0]>200) & (img[:,:,1]<20) & (img[:,:,2]<20))
+    # blue pixels are the bottom boundary condition
+    bc_bottom = np.argwhere((img[:,:,0]<20) & (img[:,:,1]<20) & (img[:,:,2]>200))
+    return walls, size_x, size_y, bc_top, bc_bottom
+
+def initialize_simulation():
+    walls, size_x, size_y, bc_top, bc_bottom = get_indexes_from_image("assets/simu_r.png")
+    i_bc_top = bc_top[:, 0]
+    j_bc_top = bc_top[:, 1]
+    idx_bc_top = idx_noq(i_bc_top, j_bc_top)
+
+    i_bc_bottom = bc_bottom[:, 0]
+    j_bc_bottom = bc_bottom[:, 1]
+    idx_bc_bottom = idx_noq(i_bc_bottom, j_bc_bottom)
+    
     rho = np.ones((SIZE_X, SIZE_Y))
     u = 0. * np.ones((SIZE_X, SIZE_Y))
     v = 0. * np.ones((SIZE_X, SIZE_Y))
     N = equilibrium_from_moments(rho, u, v)
     P = calc_permutation()
     w_p = wall_permutation(P, WALLS)
+    tau = (NU * LATTICE_INVCS2 + 0.5) * np.ones((SIZE_X, SIZE_Y, LATTICE_Q))
+    tau[:, SIZE_Y - 20:, :] = (0.1 * LATTICE_INVCS2 + 0.5)
+    tau[:, 0:5, :] = (0.1 * LATTICE_INVCS2 + 0.5)
     
+    N = N + np.random.rand(*N.shape)*0.001
+    return N, w_p, idx_bc_top, idx_bc_bottom, tau    
+
+def main():
+
+    N, w_p, idx_bc_top, idx_bc_bottom, tau = initialize_simulation()
+
+    # --------- CL initialization ----------
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    source = os.path.join(script_dir, "flute.cl")
+    ctx, queue, prg = build_cl_obj(source) 
     
-    for t in range(500):
+    N_g, M_g, P_g, idx_red_g, idx_blue_g = build_cl_buf(ctx, N, w_p, idx_bc_top, idx_bc_bottom)
+    k_stream = prg.stream
+    k_velocity_bc_top = prg.velocity_bc_top
+    k_velocity_bc_bottom = prg.velocity_bc_bottom
+    
+    M = np.zeros_like(N)
 
+    # --------- Simulation loop ----------
+    for t in range(40001):
 
-        N = stream(N, w_p)
-        N = pressure_bc_left(N, idx_P_BC_LEFT, 1.02)
-        N = pressure_bc_right(N, idx_P_BC_RIGHT, 1.)
+        vel, velx = get_velocity(t)
 
+  
+        k_stream(queue, (SIZE_X * SIZE_Y * LATTICE_Q,), None, N_g, M_g, P_g)
+        # N_CPU = stream(N, w_p)
+        
+        # check = np.allclose(M, N_CPU)
+        # print(check)
 
-        N = collide(N)
-        rho, u, v = flow_properties(N)
-        save_to_vtk(rho, u, v, "test")
+        k_velocity_bc_top(queue, (len(idx_bc_top),), None, M_g, idx_red_g, np.float64(vel), np.float64(velx))
+        k_velocity_bc_bottom(queue, (len(idx_bc_bottom),), None, M_g, idx_blue_g, np.float64(-vel), np.float64(0))
+        queue.finish()
+        cl.enqueue_copy(queue, N, M_g)
+        N_g = M_g
 
+        # check = np.allclose(M, N_CPU)
+        # print(check, N_CPU.shape == N.shape)
+
+        # print(f"max difference: {np.max(np.abs(M - N_CPU))}/{np.mean(np.abs(N_CPU))}")
+
+        # N_CPU = velocity_bc(M, idx_bc_bottom, BC_VEL_BOTTOM, -vel, 0.)
+        # N_CPU = collide(N_CPU, tau)
+        # N = N_CPU
+
+        # N = velocity_bc(M, idx_bc_bottom, BC_VEL_BOTTOM, -vel, 0.)
+        N = collide(N, tau)
+
+        # --------- Save results ----------
+        if t % 20 == 0:
+            rho, u, v = flow_properties(N)
+            save_to_vtk(rho, u, v, "sim")
+            print(f"step: {t}")
+        
+        # Check for numerical instability (NaN values in N)
         if np.isnan(N).any():
             print(f"Instability detected at step {t}!")
             break
-        
-    print("done")
+    
+    print(f"Simulation terminated at step {t}")
 
 if __name__ == "__main__":
     main()
