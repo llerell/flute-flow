@@ -66,18 +66,18 @@ def get_walls_from_image(path):
     img = imageio.imread(path)
     size_x, size_y = img.shape[:2]
     walls = np.argwhere(np.sum(img, axis=2)<20)
-    # red pixels are the top boundary condition
-    bc_top = np.argwhere((img[:,:,0]>200) & (img[:,:,1]<20) & (img[:,:,2]<20))
-    # blue pixels are the bottom boundary condition
-    bc_bottom = np.argwhere((img[:,:,0]<20) & (img[:,:,1]<20) & (img[:,:,2]>200))
-    return walls, size_x, size_y, bc_top, bc_bottom
+    # red pixels are the left boundary condition
+    bc_left = np.argwhere((img[:,:,0]>200) & (img[:,:,1]<20) & (img[:,:,2]<20))
+    # blue pixels are the right boundary condition
+    bc_right = np.argwhere((img[:,:,0]<20) & (img[:,:,1]<20) & (img[:,:,2]>200))
+    return walls, size_x, size_y, bc_left, bc_right
 
 # dimensions of the simulation grid and simulated walls 
-WALLS, SIZE_X, SIZE_Y, bc_top, bc_bottom = get_walls_from_image("assets/simu_r.png")
+WALLS, SIZE_X, SIZE_Y, bc_left, bc_right = get_walls_from_image("assets/simu_r.png")
 points = np.zeros([SIZE_X, SIZE_Y, LATTICE_Q, LATTICE_D])
 
-print(f"number of high pressure points: {len(bc_top)}")
-print(f"number of low pressure points: {len(bc_bottom)}")
+print(f"number of high pressure points: {len(bc_left)}")
+print(f"number of low pressure points: {len(bc_right)}")
 
 def idx_noq(i,j):
     return (j + SIZE_Y * i)
@@ -110,7 +110,7 @@ def equilibrium_from_moments(rho: np.array, u: np.array, v: np.array) -> np.arra
                            + p(v, LATTICE_CY))
 
     Neq = p(rho, LATTICE_W) * (  vc 
-                               + vc*vc/2
+                               + vc*vc/(2*LATTICE_INVCS2**2)
                                - p(u*u + v*v, np.ones(LATTICE_Q)) * LATTICE_INVCS2/2.
                                + 1)
     return Neq
@@ -178,7 +178,7 @@ def wall_permutation(Pm, walls):
 
 #=========================================
 
-def pressure_bc_top(N, idx, rho):
+def pressure_bc_left(N, idx, rho):
     N2D = np.reshape(N, (SIZE_X * SIZE_Y, LATTICE_Q))
 
     rho_ux = rho - (N2D[idx, 0] + N2D[idx, 2] + N2D[idx, 4]) - 2.*(N2D[idx, 3] + N2D[idx, 6] + N2D[idx, 7])
@@ -190,7 +190,7 @@ def pressure_bc_top(N, idx, rho):
     return np.reshape(N2D, (SIZE_X, SIZE_Y, LATTICE_Q))
 
 
-def pressure_bc_bottom(N, idx, rho):
+def pressure_bc_right(N, idx, rho):
     N2D = np.reshape(N, (SIZE_X * SIZE_Y, LATTICE_Q))
     rho_ux = rho - (N2D[idx, 0] + N2D[idx, 2] +  N2D[idx, 4]) - 2 * (N2D[idx, 1] + N2D[idx, 5] + N2D[idx, 8])
 
@@ -231,15 +231,16 @@ def build_cl_obj(source_file):
 
     return ctx, queue, prg
 
-def build_cl_buf(ctx, N, P, idx_bc_top, idx_bc_bottom):
+def build_cl_buf(ctx, N, P, idx_bc_left, idx_bc_right, tau):
     mf = cl.mem_flags
     N_g = cl.Buffer(ctx, mf.READ_WRITE | mf.COPY_HOST_PTR, hostbuf=N)
     P_g = cl.Buffer(ctx, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=P)
-    idx_bc_top_g = cl.Buffer(ctx, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=idx_bc_top)
-    idx_bc_bottom_g = cl.Buffer(ctx, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=idx_bc_bottom)
+    idx_bc_left_g = cl.Buffer(ctx, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=idx_bc_left)
+    idx_bc_right_g = cl.Buffer(ctx, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=idx_bc_right)
+    tau_g = cl.Buffer(ctx, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=tau)
     M_g = cl.Buffer(ctx, mf.READ_WRITE, N.nbytes)
 
-    return N_g, M_g, P_g, idx_bc_top_g, idx_bc_bottom_g
+    return N_g, M_g, P_g, idx_bc_left_g, idx_bc_right_g, tau_g
 
 def get_velocity(t):
     vel = min(t / 5000., 1.) * 0.05
@@ -252,21 +253,21 @@ def get_indexes_from_image(path):
     img = imageio.imread(path)
     size_x, size_y = img.shape[:2]
     walls = np.argwhere(np.sum(img, axis=2)<20)
-    # red pixels are the top boundary condition
-    bc_top = np.argwhere((img[:,:,0]>200) & (img[:,:,1]<20) & (img[:,:,2]<20))
-    # blue pixels are the bottom boundary condition
-    bc_bottom = np.argwhere((img[:,:,0]<20) & (img[:,:,1]<20) & (img[:,:,2]>200))
-    return walls, size_x, size_y, bc_top, bc_bottom
+    # red pixels are the left boundary condition
+    bc_left = np.argwhere((img[:,:,0]>200) & (img[:,:,1]<20) & (img[:,:,2]<20))
+    # blue pixels are the right boundary condition
+    bc_right = np.argwhere((img[:,:,0]<20) & (img[:,:,1]<20) & (img[:,:,2]>200))
+    return walls, size_x, size_y, bc_left, bc_right
 
 def initialize_simulation():
-    walls, size_x, size_y, bc_top, bc_bottom = get_indexes_from_image("assets/simu_r.png")
-    i_bc_top = bc_top[:, 0]
-    j_bc_top = bc_top[:, 1]
-    idx_bc_top = idx_noq(i_bc_top, j_bc_top)
+    walls, size_x, size_y, bc_left, bc_right = get_indexes_from_image("assets/simu_r.png")
+    i_bc_left = bc_left[:, 0]
+    j_bc_left = bc_left[:, 1]
+    idx_bc_left = idx_noq(i_bc_left, j_bc_left)
 
-    i_bc_bottom = bc_bottom[:, 0]
-    j_bc_bottom = bc_bottom[:, 1]
-    idx_bc_bottom = idx_noq(i_bc_bottom, j_bc_bottom)
+    i_bc_right = bc_right[:, 0]
+    j_bc_right = bc_right[:, 1]
+    idx_bc_right = idx_noq(i_bc_right, j_bc_right)
     
     rho = np.ones((SIZE_X, SIZE_Y))
     u = 0. * np.ones((SIZE_X, SIZE_Y))
@@ -278,21 +279,21 @@ def initialize_simulation():
     tau[:, SIZE_Y - 20:, :] = (0.1 * LATTICE_INVCS2 + 0.5)
     tau[:, 0:5, :] = (0.1 * LATTICE_INVCS2 + 0.5)
     
-    return N, w_p, idx_bc_top, idx_bc_bottom, tau    
+    return N, w_p, idx_bc_left, idx_bc_right, tau    
 
 def main():
 
-    N, w_p, idx_bc_top, idx_bc_bottom, tau = initialize_simulation()
+    N, w_p, idx_bc_left, idx_bc_right, tau = initialize_simulation()
 
     # --------- CL initialization ----------
     script_dir = os.path.dirname(os.path.abspath(__file__))
     source = os.path.join(script_dir, "flute.cl")
     ctx, queue, prg = build_cl_obj(source) 
     
-    N_g, M_g, P_g, idx_red_g, idx_blue_g = build_cl_buf(ctx, N, w_p, idx_bc_top, idx_bc_bottom)
+    N_g, M_g, P_g, idx_red_g, idx_blue_g, tau_g = build_cl_buf(ctx, N, w_p, idx_bc_left, idx_bc_right, tau)
     k_stream = prg.stream
-    k_velocity_bc_top = prg.velocity_bc_top
-    k_velocity_bc_bottom = prg.velocity_bc_bottom
+    k_velocity_bc_left = prg.velocity_bc_left
+    k_velocity_bc_right = prg.velocity_bc_right
     k_collide = prg.collide
     M = np.zeros_like(N)
     
@@ -301,35 +302,19 @@ def main():
     for t in range(40001):
 
         vel, velx = get_velocity(t)
-
   
         # Stream
         k_stream(queue, (SIZE_X * SIZE_Y * LATTICE_Q,), None, N_g, M_g, P_g)
-        k_velocity_bc_top(queue, (len(idx_bc_top),), None, M_g, idx_red_g, np.float64(vel), np.float64(velx))
-        k_velocity_bc_bottom(queue, (len(idx_bc_bottom),), None, M_g, idx_blue_g, np.float64(-vel), np.float64(0))
+        k_velocity_bc_left(queue, (len(idx_bc_left),), None, M_g, idx_red_g, np.float64(vel), np.float64(velx))
+        k_velocity_bc_right(queue, (len(idx_bc_right),), None, M_g, idx_blue_g, np.float64(-vel), np.float64(0))
+        k_collide(queue, (SIZE_X * SIZE_Y,), None, M_g, N_g, tau_g)
+
         
-        # Swap buffers for next iteration
-        
-
-        # check = np.allclose(M, N_CPU)
-        # print(check, N_CPU.shape == N.shape)
-
-        # print(f"max difference: {np.max(np.abs(M - N_CPU))}/{np.mean(np.abs(N_CPU))}")
-
-        # N_CPU = velocity_bc(M, idx_bc_bottom, BC_VEL_BOTTOM, -vel, 0.)
-        # N_CPU = collide(N_CPU, tau)
-        # N = N_CPU
-
-        # N = velocity_bc(M, idx_bc_bottom, BC_VEL_BOTTOM, -vel, 0.)
-        # N_CPU = np.copy(N)
-        # N_CPU = collide(N_CPU, tau)
-        k_collide(queue, (SIZE_X * SIZE_Y,), None, N_g, M_g, P_g)
-        cl.enqueue_copy(queue, N, M_g)
-        queue.finish()
-        N_g, M_g = M_g, N_g
 
         # --------- Save results ----------
         if t % 200 == 0:
+            cl.enqueue_copy(queue, N, N_g)
+            queue.finish()
             rho, u, v = flow_properties(N)
             save_to_vtk(rho, u, v, "sim")
             print(f"step: {t}")

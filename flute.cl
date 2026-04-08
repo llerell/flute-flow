@@ -1,5 +1,5 @@
-constant int bc_vel_top[]    = {0, 1, 3, 4, 7, 8, 2, 5, 6};
-constant int bc_vel_bottom[] = {0, 1, 3, 2, 6, 5, 4, 8, 7};
+constant int bc_vel_left[]    = {0, 1, 3, 4, 7, 8, 2, 5, 6};
+constant int bc_vel_right[] = {0, 1, 3, 2, 6, 5, 4, 8, 7};
 constant int lattice_q = 9;
 constant double lattice_w[] = {4./9., 1./9., 1./9., 1./9., 1./9., 1./36., 1./36., 1./36., 1./36.};
 constant double lattice_cx[] = {0, 1, 0, -1,  0, 1, -1, -1, 1};
@@ -15,8 +15,7 @@ kernel void stream(global double* N_in, global double* N_out, global int *P){
     N_out[i] = N_in[P[i]];
 }
 
-
-kernel void velocity_bc_top(global double* N_out, global int* idx, 
+kernel void velocity_bc_left(global double* N_out, global int* idx, 
 double vel_n, double vel_t){
     int i = get_global_id(0);
     int xy = idx[i];
@@ -24,7 +23,7 @@ double vel_n, double vel_t){
     int indexes[9];
 
     for (int q = 0; q<9; q++){
-        indexes[q] = xyq(xy, bc_vel_top[q]);
+        indexes[q] = xyq(xy, bc_vel_left[q]);
     }
     // Read from all required indices using 2D indexing
     double n0 = N_out[indexes[0]];
@@ -45,7 +44,7 @@ double vel_n, double vel_t){
     N_out[indexes[8]] = n5 + 0.5 * (n1 - n2) + (1.0 / 6.0) * rho * (vel_n - vel_t);
 }
 
-kernel void velocity_bc_bottom(global double* N_out, global int* idx, 
+kernel void velocity_bc_right(global double* N_out, global int* idx, 
 double vel_n, double vel_t){
     int i = get_global_id(0);
     int xy = idx[i];
@@ -53,7 +52,7 @@ double vel_n, double vel_t){
     int indexes[9];
 
     for (int q = 0; q<9; q++){
-        indexes[q] = xyq(xy, bc_vel_bottom[q]);
+        indexes[q] = xyq(xy, bc_vel_right[q]);
     }
     // Read from all required indices using 2D indexing
     double n0 = N_out[indexes[0]];
@@ -78,7 +77,7 @@ kernel void collide(global double* N_in, global double* N_out, global double* ta
     int xy = get_global_id(0);
 
     // flow_properties
-    double rho, u, v=0;
+    double rho = 0, u = 0, v = 0;
     double Nq;
     for (int q=0; q<lattice_q; q++){
         Nq = N_in[xyq(xy,q)];
@@ -86,15 +85,20 @@ kernel void collide(global double* N_in, global double* N_out, global double* ta
         u += Nq * lattice_cx[q];
         v += Nq * lattice_cy[q];
     }
-    rho = rho < 0.000001 ? 0.000001 : rho;
+    rho = rho < 1e-6 ? 1e-6 : rho;
     u/=rho;
     v/=rho;
+    double u2 = u*u + v*v;
 
-    // equilibrium for moments
-    
+    // equilibrium
+    double Neq;
+    int i;
+    for (int q=0; q<lattice_q; q++){
+        i = xyq(xy, q); 
+        double cu = (u * lattice_cx[q] + v * lattice_cy[q]);
+        Neq = rho * lattice_w[q]*(1.0 + invcs2*cu + 0.5*invcs2*invcs2*cu*cu - 0.5*invcs2*u2);
+        N_out[i] = N_in[i] - (N_in[i] - Neq)/tau[i];
+    }
 }
 
-double Neq(){
-    return 0.1;
-}
 
