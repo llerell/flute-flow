@@ -1,6 +1,11 @@
 constant int bc_vel_top[]    = {0, 1, 3, 4, 7, 8, 2, 5, 6};
 constant int bc_vel_bottom[] = {0, 1, 3, 2, 6, 5, 4, 8, 7};
 constant int lattice_q = 9;
+constant double lattice_w[] = {4./9., 1./9., 1./9., 1./9., 1./9., 1./36., 1./36., 1./36., 1./36.};
+constant double lattice_cx[] = {0, 1, 0, -1,  0, 1, -1, -1, 1};
+constant double lattice_cy[] = {0, 0, 1,  0, -1, 1,  1, -1,-1};
+constant double invcs2 = 3;
+constant double nu = 0.05;
 
 int xyq(int xy, int q){
     return xy * lattice_q + q;
@@ -70,11 +75,26 @@ double vel_n, double vel_t){
 }
 
 kernel void collide(global double* N_in, global double* N_out, global double* tau){
-    int i = get_global_id(0);
-    double Neq_i = 0.;
-    N_out[i] = N_in[i] - (N_in[i] - Neq_i)/tau[i];
+    int xy = get_global_id(0);
+
+    // flow_properties
+    double rho, u, v=0;
+    double Nq;
+    for (int q=0; q<lattice_q; q++){
+        Nq = N_in[xyq(xy,q)];
+        rho += Nq;
+        u += Nq * lattice_cx[q];
+        v += Nq * lattice_cy[q];
+    }
+    rho = rho < 0.000001 ? 0.000001 : rho;
+    u/=rho;
+    v/=rho;
+
+    // equilibrium for moments
+    
 }
 
 double Neq(){
     return 0.1;
 }
+

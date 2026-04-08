@@ -278,7 +278,6 @@ def initialize_simulation():
     tau[:, SIZE_Y - 20:, :] = (0.1 * LATTICE_INVCS2 + 0.5)
     tau[:, 0:5, :] = (0.1 * LATTICE_INVCS2 + 0.5)
     
-    N = N + np.random.rand(*N.shape)*0.001
     return N, w_p, idx_bc_top, idx_bc_bottom, tau    
 
 def main():
@@ -294,8 +293,9 @@ def main():
     k_stream = prg.stream
     k_velocity_bc_top = prg.velocity_bc_top
     k_velocity_bc_bottom = prg.velocity_bc_bottom
-    
+    k_collide = prg.collide
     M = np.zeros_like(N)
+    
 
     # --------- Simulation loop ----------
     for t in range(40001):
@@ -303,17 +303,13 @@ def main():
         vel, velx = get_velocity(t)
 
   
+        # Stream
         k_stream(queue, (SIZE_X * SIZE_Y * LATTICE_Q,), None, N_g, M_g, P_g)
-        # N_CPU = stream(N, w_p)
-        
-        # check = np.allclose(M, N_CPU)
-        # print(check)
-
         k_velocity_bc_top(queue, (len(idx_bc_top),), None, M_g, idx_red_g, np.float64(vel), np.float64(velx))
         k_velocity_bc_bottom(queue, (len(idx_bc_bottom),), None, M_g, idx_blue_g, np.float64(-vel), np.float64(0))
-        queue.finish()
-        cl.enqueue_copy(queue, N, M_g)
-        N_g = M_g
+        
+        # Swap buffers for next iteration
+        
 
         # check = np.allclose(M, N_CPU)
         # print(check, N_CPU.shape == N.shape)
@@ -325,10 +321,15 @@ def main():
         # N = N_CPU
 
         # N = velocity_bc(M, idx_bc_bottom, BC_VEL_BOTTOM, -vel, 0.)
-        N = collide(N, tau)
+        # N_CPU = np.copy(N)
+        # N_CPU = collide(N_CPU, tau)
+        k_collide(queue, (SIZE_X * SIZE_Y,), None, N_g, M_g, P_g)
+        cl.enqueue_copy(queue, N, M_g)
+        queue.finish()
+        N_g, M_g = M_g, N_g
 
         # --------- Save results ----------
-        if t % 20 == 0:
+        if t % 200 == 0:
             rho, u, v = flow_properties(N)
             save_to_vtk(rho, u, v, "sim")
             print(f"step: {t}")
