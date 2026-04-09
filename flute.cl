@@ -73,9 +73,17 @@ double vel_n, double vel_t){
     N_out[indexes[8]] = n5 + 0.5 * (n1 - n2) + (1.0 / 6.0) * rho * (vel_n - vel_t);
 }
 
-kernel void collide(global double* N_in, global double* N_out, global double* tau){
+kernel void collide(global double* N_in, global double* N_out, global double* tau, global int* is_wall){
     int xy = get_global_id(0);
 
+    if (is_wall[xy]==1){
+        int i;
+        for (int q=0; q<lattice_q; q++){
+            i = xyq(xy,q);
+            N_out[i]=N_in[i];
+        }
+        return;
+    }
     // flow_properties
     double rho = 0, u = 0, v = 0;
     double Nq;

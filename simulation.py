@@ -4,6 +4,7 @@ import os
 from evtk import hl as vtkhl
 import imageio.v2 as imageio
 
+
 #=========================================
 
 # 6   2   5
@@ -72,35 +73,28 @@ def get_walls_from_image(path):
     bc_right = np.argwhere((img[:,:,0]<20) & (img[:,:,1]<20) & (img[:,:,2]>200))
     return walls, size_x, size_y, bc_left, bc_right
 
-# dimensions of the simulation grid and simulated walls 
-WALLS, SIZE_X, SIZE_Y, bc_left, bc_right = get_walls_from_image("assets/simu_r.png")
-points = np.zeros([SIZE_X, SIZE_Y, LATTICE_Q, LATTICE_D])
-
-print(f"number of high pressure points: {len(bc_left)}")
-print(f"number of low pressure points: {len(bc_right)}")
-
-def idx_noq(i,j):
-    return (j + SIZE_Y * i)
+def idx_noq(i,j, size_y):
+    return (j + size_y * i)
 
 
 
 
-def save_to_vtk(rho, u, v, name):
+def save_to_vtk(rho, u, v, name, size_x, size_y):
     if not os.path.exists("images"):
         os.makedirs("images")
 
 
-    u = np.reshape(u , (SIZE_X, SIZE_Y, 1), order='C')
-    v = np.reshape(v , (SIZE_X, SIZE_Y, 1), order='C')
-    rho = np.reshape(rho, (SIZE_X, SIZE_Y, 1), order='C')
+    u = np.reshape(u , (size_x, size_y, 1), order='C')
+    v = np.reshape(v , (size_x, size_y, 1), order='C')
+    rho = np.reshape(rho, (size_x, size_y, 1), order='C')
     vtkhl.imageToVTK(f"images/{name}_{next(cpt)}",
     pointData={"p": rho - 1., "u": u, "v": v}) 
 
-
-def equilibrium_distribution(N: np.array) -> np.array:
-    rho, u, v = flow_properties(N)
-    return equilibrium_from_moments(rho, u, v)
-
+def flow_properties(N: np.array) -> tuple[np.array, np.array, np.array]:
+    rho = np.sum(N, axis=2)
+    u = np.sum(N * LATTICE_CX, axis=2) / rho
+    v = np.sum(N * LATTICE_CY, axis=2) / rho
+    return rho, u, v
 
 def equilibrium_from_moments(rho: np.array, u: np.array, v: np.array) -> np.array:
     def p(a,b):
@@ -115,56 +109,33 @@ def equilibrium_from_moments(rho: np.array, u: np.array, v: np.array) -> np.arra
                                + 1)
     return Neq
 
+def idx(i,j,q, size_y):
+    return q + LATTICE_Q * (j + size_y * i)
 
-def flow_properties(N: np.array) -> tuple[np.array, np.array, np.array]:
-    rho = np.sum(N, axis=2)
-    u = np.sum(N * LATTICE_CX, axis=2) / rho
-    v = np.sum(N * LATTICE_CY, axis=2) / rho
-    return rho, u, v
-
-
-def collide(N, tau):
-    Nm = N - (N - equilibrium_distribution(N))/tau
-    return Nm
-
-
-def idx(i,j,q):
-    return q + LATTICE_Q * (j + SIZE_Y * i)
-
-def calc_permutation():
-    P = np.zeros(SIZE_X * SIZE_Y * LATTICE_Q, dtype=np.int32)
-    for i in range(SIZE_X):
-        for j in range(SIZE_Y):
+def calc_permutation(size_x, size_y):
+    P = np.zeros(size_x * size_y * LATTICE_Q, dtype=np.int32)
+    for i in range(size_x):
+        for j in range(size_y):
             for q in range(LATTICE_Q):
-                x = np.mod(i + LATTICE_CX[q], SIZE_X)
-                y = np.mod(j + LATTICE_CY[q], SIZE_Y)
-                P[idx(x,y,q)] = idx(i,j,q)
+                x = np.mod(i + LATTICE_CX[q], size_x)
+                y = np.mod(j + LATTICE_CY[q], size_y)
+                P[idx(x,y,q, size_y)] = idx(i,j,q, size_y)
     return P
 
-
-def stream(Nm, P):
-    N = np.reshape(
-            np.reshape(Nm, (SIZE_X * SIZE_Y * LATTICE_Q))[P],
-            (SIZE_X, SIZE_Y, LATTICE_Q)
-        )
-    return N
-
-
-def wall(N, i, j):
+def wall(N, i, j, size_x, size_y):
     # [i,j] is a wall node
     for q in range(LATTICE_Q):
-                x = np.mod(i + LATTICE_CX[q], SIZE_X)
-                y = np.mod(j + LATTICE_CY[q], SIZE_Y)
+                x = np.mod(i + LATTICE_CX[q], size_x)
+                y = np.mod(j + LATTICE_CY[q], size_y)
                 N[x, y, q] = N[i, j, LATTICE_BB[q]]
     return N
 
-
-def wall_permutation(Pm, walls):
+def wall_permutation(Pm, walls, size_x, size_y):
     w_p = np.copy(Pm)
     for (i,j) in walls:
          for q in range(LATTICE_Q):
-                x = np.mod(i + LATTICE_CX[q], SIZE_X)
-                y = np.mod(j + LATTICE_CY[q], SIZE_Y)
+                x = np.mod(i + LATTICE_CX[q], size_x)
+                y = np.mod(j + LATTICE_CY[q], size_y)
                 w_p[idx(x, y, q)], w_p[idx(i, j, LATTICE_BB[q])] = Pm[idx(i, j, LATTICE_BB[q])], Pm[idx(x, y, q)] 
     return w_p
 
@@ -177,46 +148,6 @@ def wall_permutation(Pm, walls):
 # 7   4   8
 
 #=========================================
-
-def pressure_bc_left(N, idx, rho):
-    N2D = np.reshape(N, (SIZE_X * SIZE_Y, LATTICE_Q))
-
-    rho_ux = rho - (N2D[idx, 0] + N2D[idx, 2] + N2D[idx, 4]) - 2.*(N2D[idx, 3] + N2D[idx, 6] + N2D[idx, 7])
-
-    N2D[idx, 1] = N2D[idx, 3] + (2./3.)*rho_ux
-    N2D[idx, 5] = N2D[idx, 7] - (1./2.)*(N2D[idx, 2]-N2D[idx, 4]) + (1./6.)*rho_ux
-    N2D[idx, 8] = N2D[idx, 6] + (1./2.)*(N2D[idx, 2]-N2D[idx, 4]) + (1./6.)*rho_ux
-    
-    return np.reshape(N2D, (SIZE_X, SIZE_Y, LATTICE_Q))
-
-
-def pressure_bc_right(N, idx, rho):
-    N2D = np.reshape(N, (SIZE_X * SIZE_Y, LATTICE_Q))
-    rho_ux = rho - (N2D[idx, 0] + N2D[idx, 2] +  N2D[idx, 4]) - 2 * (N2D[idx, 1] + N2D[idx, 5] + N2D[idx, 8])
-
-    N2D[idx, 3] = N2D[idx, 1] + (2./3.)*rho_ux
-    N2D[idx, 6] = N2D[idx, 8] - (1./2.)*(N2D[idx, 2]-N2D[idx, 4]) + (1./6.)*rho_ux
-    N2D[idx, 7] = N2D[idx, 5] + (1./2.)*(N2D[idx, 2]-N2D[idx, 4]) + (1./6.)*rho_ux
-    
-    return np.reshape(N2D, (SIZE_X, SIZE_Y, LATTICE_Q))
-
-BC_VEL_TOP    = [0, 1, 3, 4, 7, 8, 2, 5, 6]
-BC_VEL_BOTTOM = [0, 1, 3, 2, 6, 5, 4, 8, 7]
-
-def velocity_bc(N, idx, bc_vel, un, ut):
-    N2D = np.reshape(N, (SIZE_X * SIZE_Y, LATTICE_Q))
-    rho = (N2D[idx, bc_vel[0]] + N2D[idx, bc_vel[1]] + N2D[idx, bc_vel[2]] + 2 * (N2D[idx, bc_vel[3]] + N2D[idx, bc_vel[4]] + N2D[idx, bc_vel[5]]))/(1. - un)
-    N2D[idx, bc_vel[6]] = N2D[idx, bc_vel[3]] + 2./3. * rho * un
-    N2D[idx, bc_vel[7]] = N2D[idx, bc_vel[4]] - 0.5 * (N2D[idx, bc_vel[1]] - N2D[idx, bc_vel[2]]) + 1./6. * rho * (un + ut)
-    N2D[idx, bc_vel[8]] = N2D[idx, bc_vel[5]] + 0.5 * (N2D[idx, bc_vel[1]] - N2D[idx, bc_vel[2]]) + 1./6. * rho * (un - ut)
-    return np.reshape(N2D, (SIZE_X, SIZE_Y, LATTICE_Q))
-
-def bounce_back(Nm, w_p):
-    N = np.reshape(
-            np.reshape(Nm, (SIZE_X * SIZE_Y * LATTICE_Q))[w_p],
-            (SIZE_X, SIZE_Y, LATTICE_Q)
-        )
-    return N
 
 def build_cl_obj(source_file):
     ctx = cl.create_some_context()
@@ -231,7 +162,7 @@ def build_cl_obj(source_file):
 
     return ctx, queue, prg
 
-def build_cl_buf(ctx, N, P, idx_bc_left, idx_bc_right, tau):
+def build_cl_buf(ctx, N, P, walls, idx_bc_left, idx_bc_right, tau, size_x, size_y):
     mf = cl.mem_flags
     N_g = cl.Buffer(ctx, mf.READ_WRITE | mf.COPY_HOST_PTR, hostbuf=N)
     P_g = cl.Buffer(ctx, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=P)
@@ -240,7 +171,12 @@ def build_cl_buf(ctx, N, P, idx_bc_left, idx_bc_right, tau):
     tau_g = cl.Buffer(ctx, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=tau)
     M_g = cl.Buffer(ctx, mf.READ_WRITE, N.nbytes)
 
-    return N_g, M_g, P_g, idx_bc_left_g, idx_bc_right_g, tau_g
+    is_wall = np.zeros((size_x, size_y), dtype=np.int32)
+    for (i,j) in walls:
+        is_wall[idx_noq(i,j,size_y)] = 1
+    is_wall_g = cl.Buffer(ctx, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=is_wall)
+
+    return N_g, M_g, P_g, is_wall_g, idx_bc_left_g, idx_bc_right_g, tau_g
 
 def get_velocity(t):
     vel = min(t / 5000., 1.) * 0.05
@@ -263,34 +199,34 @@ def initialize_simulation():
     walls, size_x, size_y, bc_left, bc_right = get_indexes_from_image("assets/simu_r.png")
     i_bc_left = bc_left[:, 0]
     j_bc_left = bc_left[:, 1]
-    idx_bc_left = idx_noq(i_bc_left, j_bc_left)
+    idx_bc_left = idx_noq(i_bc_left, j_bc_left, size_y)
 
     i_bc_right = bc_right[:, 0]
     j_bc_right = bc_right[:, 1]
-    idx_bc_right = idx_noq(i_bc_right, j_bc_right)
+    idx_bc_right = idx_noq(i_bc_right, j_bc_right, size_y)
     
-    rho = np.ones((SIZE_X, SIZE_Y))
-    u = 0. * np.ones((SIZE_X, SIZE_Y))
-    v = 0. * np.ones((SIZE_X, SIZE_Y))
+    rho = np.ones((size_x, size_y))
+    u = 0. * np.ones((size_x, size_y))
+    v = 0. * np.ones((size_x, size_y))
     N = equilibrium_from_moments(rho, u, v)
-    P = calc_permutation()
-    w_p = wall_permutation(P, WALLS)
-    tau = (NU * LATTICE_INVCS2 + 0.5) * np.ones((SIZE_X, SIZE_Y, LATTICE_Q))
-    tau[:, SIZE_Y - 20:, :] = (0.1 * LATTICE_INVCS2 + 0.5)
+    P = calc_permutation(size_x, size_y)
+    w_p = wall_permutation(P, walls, size_x, size_y)
+    tau = (NU * LATTICE_INVCS2 + 0.5) * np.ones((size_x, size_y, LATTICE_Q))
+    tau[:, size_y - 20:, :] = (0.1 * LATTICE_INVCS2 + 0.5)
     tau[:, 0:5, :] = (0.1 * LATTICE_INVCS2 + 0.5)
     
-    return N, w_p, idx_bc_left, idx_bc_right, tau    
+    return N, w_p, walls, idx_bc_left, idx_bc_right, tau, size_x, size_y  
 
 def main():
 
-    N, w_p, idx_bc_left, idx_bc_right, tau = initialize_simulation()
+    N, w_p, walls, idx_bc_left, idx_bc_right, tau, size_x, size_y = initialize_simulation()
 
     # --------- CL initialization ----------
     script_dir = os.path.dirname(os.path.abspath(__file__))
     source = os.path.join(script_dir, "flute.cl")
     ctx, queue, prg = build_cl_obj(source) 
     
-    N_g, M_g, P_g, idx_red_g, idx_blue_g, tau_g = build_cl_buf(ctx, N, w_p, idx_bc_left, idx_bc_right, tau)
+    N_g, M_g, P_g, is_wall_g, idx_red_g, idx_blue_g, tau_g = build_cl_buf(ctx, N, w_p, walls, idx_bc_left, idx_bc_right, tau, size_x, size_y)
     k_stream = prg.stream
     k_velocity_bc_left = prg.velocity_bc_left
     k_velocity_bc_right = prg.velocity_bc_right
@@ -299,24 +235,22 @@ def main():
     
 
     # --------- Simulation loop ----------
-    for t in range(40001):
+    for t in range(80001):
 
         vel, velx = get_velocity(t)
   
         # Stream
-        k_stream(queue, (SIZE_X * SIZE_Y * LATTICE_Q,), None, N_g, M_g, P_g)
+        k_stream(queue, (size_x * size_y * LATTICE_Q,), None, N_g, M_g, P_g)
         k_velocity_bc_left(queue, (len(idx_bc_left),), None, M_g, idx_red_g, np.float64(vel), np.float64(velx))
         k_velocity_bc_right(queue, (len(idx_bc_right),), None, M_g, idx_blue_g, np.float64(-vel), np.float64(0))
-        k_collide(queue, (SIZE_X * SIZE_Y,), None, M_g, N_g, tau_g)
-
-        
+        k_collide(queue, (size_x * size_y,), None, M_g, N_g, tau_g, is_wall_g)
 
         # --------- Save results ----------
         if t % 200 == 0:
             cl.enqueue_copy(queue, N, N_g)
             queue.finish()
             rho, u, v = flow_properties(N)
-            save_to_vtk(rho, u, v, "sim")
+            save_to_vtk(rho, u, v, "sim", size_x, size_y)
             print(f"step: {t}")
         
         # Check for numerical instability (NaN values in N)
