@@ -92,6 +92,7 @@ def save_to_vtk(rho, u, v, name, size_x, size_y):
 
 def flow_properties(N: np.array) -> tuple[np.array, np.array, np.array]:
     rho = np.sum(N, axis=2)
+    rho[rho <= 1e-10] = 1e-10
     u = np.sum(N * LATTICE_CX, axis=2) / rho
     v = np.sum(N * LATTICE_CY, axis=2) / rho
     return rho, u, v
@@ -136,7 +137,7 @@ def wall_permutation(Pm, walls, size_x, size_y):
          for q in range(LATTICE_Q):
                 x = np.mod(i + LATTICE_CX[q], size_x)
                 y = np.mod(j + LATTICE_CY[q], size_y)
-                w_p[idx(x, y, q)], w_p[idx(i, j, LATTICE_BB[q])] = Pm[idx(i, j, LATTICE_BB[q])], Pm[idx(x, y, q)] 
+                w_p[idx(x, y, q, size_y)], w_p[idx(i, j, LATTICE_BB[q], size_y)] = Pm[idx(i, j, LATTICE_BB[q], size_y)], Pm[idx(x, y, q, size_y)] 
     return w_p
 
 #=========================================
@@ -173,7 +174,7 @@ def build_cl_buf(ctx, N, P, walls, idx_bc_left, idx_bc_right, tau, size_x, size_
 
     is_wall = np.zeros((size_x, size_y), dtype=np.int32)
     for (i,j) in walls:
-        is_wall[idx_noq(i,j,size_y)] = 1
+        is_wall[i,j] = 1
     is_wall_g = cl.Buffer(ctx, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=is_wall)
 
     return N_g, M_g, P_g, is_wall_g, idx_bc_left_g, idx_bc_right_g, tau_g
@@ -196,7 +197,7 @@ def get_indexes_from_image(path):
     return walls, size_x, size_y, bc_left, bc_right
 
 def initialize_simulation():
-    walls, size_x, size_y, bc_left, bc_right = get_indexes_from_image("assets/simu_r.png")
+    walls, size_x, size_y, bc_left, bc_right = get_indexes_from_image("assets/image.png")
     i_bc_left = bc_left[:, 0]
     j_bc_left = bc_left[:, 1]
     idx_bc_left = idx_noq(i_bc_left, j_bc_left, size_y)
@@ -235,7 +236,7 @@ def main():
     
 
     # --------- Simulation loop ----------
-    for t in range(80001):
+    for t in range(40001):
 
         vel, velx = get_velocity(t)
   
@@ -249,14 +250,15 @@ def main():
         if t % 200 == 0:
             cl.enqueue_copy(queue, N, N_g)
             queue.finish()
+            # Check for numerical instability (NaN values in N)
+            if np.isnan(N).any():
+                print(f"Instability detected at step {t}!")
+                break
             rho, u, v = flow_properties(N)
             save_to_vtk(rho, u, v, "sim", size_x, size_y)
             print(f"step: {t}")
         
-        # Check for numerical instability (NaN values in N)
-        if np.isnan(N).any():
-            print(f"Instability detected at step {t}!")
-            break
+
     
     print(f"Simulation terminated at step {t}")
 
