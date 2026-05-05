@@ -56,7 +56,7 @@ LATTICE_BB[8] = 6
 LATTICE_INVCS2 = 3.
 
 
-NU = 0.05
+NU = 0.01
 
 
 
@@ -66,11 +66,17 @@ cpt = iter(range(1000000)) #image counter
 def get_walls_from_image(path):
     img = imageio.imread(path)
     size_x, size_y = img.shape[:2]
-    walls = np.argwhere(np.sum(img, axis=2)<20)
-    # red pixels are the left boundary condition
-    bc_left = np.argwhere((img[:,:,0]>200) & (img[:,:,1]<20) & (img[:,:,2]<20))
-    # blue pixels are the right boundary condition
-    bc_right = np.argwhere((img[:,:,0]<20) & (img[:,:,1]<20) & (img[:,:,2]>200))
+    
+    # Strict RGB: only 0 or 255 per channel
+    # Black (0,0,0) = walls
+    walls = np.argwhere((img[:,:,0]==0) & (img[:,:,1]==0) & (img[:,:,2]==0))
+    
+    # Red (255,0,0) = left boundary condition
+    bc_left = np.argwhere((img[:,:,0]==255) & (img[:,:,1]==0) & (img[:,:,2]==0))
+    
+    # Blue (0,0,255) = right boundary condition
+    bc_right = np.argwhere((img[:,:,0]==0) & (img[:,:,1]==0) & (img[:,:,2]==255))
+    
     return walls, size_x, size_y, bc_left, bc_right
 
 def idx_noq(i,j, size_y):
@@ -105,15 +111,15 @@ def equilibrium_from_moments(rho: np.array, u: np.array, v: np.array) -> np.arra
                            + p(v, LATTICE_CY))
 
     Neq = p(rho, LATTICE_W) * (  vc 
-                               + vc*vc/(2*LATTICE_INVCS2**2)
+                               + vc*vc/2.
                                - p(u*u + v*v, np.ones(LATTICE_Q)) * LATTICE_INVCS2/2.
                                + 1)
     return Neq
 
-def idx(i,j,q, size_y):
+def idx(i: int, j: int, q:int , size_y: int) -> int:
     return q + LATTICE_Q * (j + size_y * i)
 
-def calc_permutation(size_x, size_y):
+def calc_permutation(size_x: int, size_y: int) -> np.array:
     P = np.zeros(size_x * size_y * LATTICE_Q, dtype=np.int32)
     for i in range(size_x):
         for j in range(size_y):
@@ -121,23 +127,26 @@ def calc_permutation(size_x, size_y):
                 x = np.mod(i + LATTICE_CX[q], size_x)
                 y = np.mod(j + LATTICE_CY[q], size_y)
                 P[idx(x,y,q, size_y)] = idx(i,j,q, size_y)
+                
     return P
 
-def wall(N, i, j, size_x, size_y):
+"""
+def wall(N: np.array, i:int, j:int, size_x:int, size_y:int):
     # [i,j] is a wall node
     for q in range(LATTICE_Q):
                 x = np.mod(i + LATTICE_CX[q], size_x)
                 y = np.mod(j + LATTICE_CY[q], size_y)
                 N[x, y, q] = N[i, j, LATTICE_BB[q]]
     return N
+"""
 
-def wall_permutation(Pm, walls, size_x, size_y):
+def wall_permutation(Pm: np.array, walls:np.array, size_x:int, size_y:int):
     w_p = np.copy(Pm)
     for (i,j) in walls:
          for q in range(LATTICE_Q):
-                x = np.mod(i + LATTICE_CX[q], size_x)
-                y = np.mod(j + LATTICE_CY[q], size_y)
-                w_p[idx(x, y, q, size_y)], w_p[idx(i, j, LATTICE_BB[q], size_y)] = Pm[idx(i, j, LATTICE_BB[q], size_y)], Pm[idx(x, y, q, size_y)] 
+            x = np.mod(i + LATTICE_CX[q], size_x)
+            y = np.mod(j + LATTICE_CY[q], size_y)
+            w_p[idx(x, y, q, size_y)], w_p[idx(i, j, LATTICE_BB[q], size_y)] = Pm[idx(i, j, LATTICE_BB[q], size_y)], Pm[idx(x, y, q, size_y)] 
     return w_p
 
 #=========================================
@@ -221,7 +230,11 @@ def initialize_simulation():
 def main():
 
     N, w_p, walls, idx_bc_left, idx_bc_right, tau, size_x, size_y = initialize_simulation()
+    print(len(np.argwhere(w_p < 9)), np.argwhere(w_p < 9))
+    print(w_p)
 
+    print(idx_bc_left)
+    print(idx_bc_right)
     # --------- CL initialization ----------
     script_dir = os.path.dirname(os.path.abspath(__file__))
     source = os.path.join(script_dir, "flute.cl")
@@ -232,9 +245,8 @@ def main():
     k_velocity_bc_left = prg.velocity_bc_left
     k_velocity_bc_right = prg.velocity_bc_right
     k_collide = prg.collide
-    M = np.zeros_like(N)
     
-
+    
     # --------- Simulation loop ----------
     for t in range(40001):
 
@@ -252,7 +264,7 @@ def main():
             queue.finish()
             # Check for numerical instability (NaN values in N)
             if np.isnan(N).any():
-                print(f"Instability detected at step {t}!")
+                print(f"Instability detected in {np.argwhere(np.isnan(N))}!")
                 break
             rho, u, v = flow_properties(N)
             save_to_vtk(rho, u, v, "sim", size_x, size_y)
