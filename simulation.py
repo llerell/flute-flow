@@ -206,7 +206,6 @@ def get_velocity(t: int) -> tuple[np.float64, np.float64]:
 
 def get_indexes_from_image(path):
     img = imageio.imread(path)
-    print("Image shape:", img.shape)
     size_x, size_y = img.shape[:2]
     walls = np.argwhere(np.sum(img, axis=2)<20)
     # red pixels are the top boundary condition
@@ -225,9 +224,9 @@ def initialize_simulation():
     j_bc_bottom = bc_bottom[:, 1]
     idx_bc_bottom = idx_noq(i_bc_bottom, j_bc_bottom, size_y)
     
-    rho = np.ones((size_x, size_y))
-    u = 0. * np.ones((size_x, size_y))
-    v = 0. * np.ones((size_x, size_y))
+    rho = np.ones((size_x, size_y), dtype=np.float64)
+    u = 0. * np.ones((size_x, size_y), dtype=np.float64)
+    v = 0. * np.ones((size_x, size_y), dtype=np.float64)
     N = equilibrium_from_moments(rho, u, v)
     N[1:size_x-1, 1:size_y-1] += np.random.rand(size_x-2, size_y-2, 9) * 0.001
     P = calc_permutation(size_x, size_y)
@@ -251,10 +250,11 @@ def main():
     k_velocity_bc_top = prg.velocity_bc_top
     k_velocity_bc_bottom = prg.velocity_bc_bottom
     k_collide = prg.collide
-    
-    
+    rho_arr = np.zeros(1, dtype=np.float64)
+    rho_g = cl.Buffer(ctx, cl.mem_flags.WRITE_ONLY, rho_arr.nbytes)
+    k_compute_rho = prg.compute_rho
     # --------- Simulation loop ----------
-    for t in range(80001):
+    for t in range(2001):
 
         vel, velx = get_velocity(t)
   
@@ -264,15 +264,13 @@ def main():
         k_velocity_bc_bottom(queue, (len(idx_bc_bottom),), None, M_g, idx_blue_g,  -vel, ZERO)
         k_collide(queue, (size_x * size_y,), None, M_g, N_g, tau_g)
 
+        k_compute_rho(queue, (1,), None, rho_g, np.int32(0), N_g)
 
         # --------- Save results ----------
         if t % 200 == 0:
-            cl.enqueue_copy(queue, N, N_g)
-            queue.finish()
-            # Check for numerical instability (NaN values in N)
-            if np.isnan(N).any():
-                print(f"Instability detected in {np.argwhere(np.isnan(N))}!")
-                break
+
+            cl.enqueue_copy(queue, N, N_g , is_blocking=False) 
+            
             rho, u, v = flow_properties(N)
             save_to_vtk(rho, u, v, "sim", size_x, size_y)
             print(f"step: {t}")

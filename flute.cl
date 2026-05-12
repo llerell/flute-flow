@@ -15,64 +15,36 @@ kernel void stream(global double* N_in, global double* N_out, global int *P){
     N_out[i] = N_in[P[i]];
 }
 
-kernel void velocity_bc_top(global double* N_out, global int* idx, 
-double vel_n, double vel_t){
+kernel void velocity_bc_top(global double *N_out, global int *idx, 
+    double vel_n, double vel_t){
     int i = get_global_id(0);
     int xy = idx[i];
-    
-    int indexes[9];
-
-    for (int q = 0; q<9; q++){
-        indexes[q] = xyq(xy, bc_vel_top[q]);
+    int B[lattice_q];
+    for (int q = 0 ; q < lattice_q ; q = q + 1){
+        B[q] = xyq(xy, bc_vel_top[q]);
     }
-    // Read from all required indices using 2D indexing
-    double n0 = N_out[indexes[0]];
-    double n1 = N_out[indexes[1]];
-    double n2 = N_out[indexes[2]];
-    double n3 = N_out[indexes[3]];
-    double n4 = N_out[indexes[4]];
-    double n5 = N_out[indexes[5]];
-    
-
-    double divisor = (1.0 - vel_n);
-    divisor = (fabs(divisor) > 1e-10) ? divisor : 1e-10;
-    double rho = (n0 + n1 + n2 + 2.0 * (n3 + n4 + n5)) / divisor;
-    
-    // Write to output indices
-    N_out[indexes[6]] = n3 + 2.0 / 3.0 * rho * vel_n;
-    N_out[indexes[7]] = n4 - 0.5 * (n1 - n2) + (1.0 / 6.0) * rho * (vel_n + vel_t);
-    N_out[indexes[8]] = n5 + 0.5 * (n1 - n2) + (1.0 / 6.0) * rho * (vel_n - vel_t);
+    double rho = N_out[B[0]] + N_out[B[1]] + N_out[B[2]] \
+     + 2 * (N_out[B[3]] + N_out[B[4]] +N_out[B[5]] );
+    rho = rho / (1 - vel_n);
+    N_out[B[6]] = N_out[B[3]] + 2 * (rho * vel_n)/3;
+    N_out[B[7]] = N_out[B[4]] - 0.5 * (N_out[B[1]] - N_out[B[2]]) + 1./6. * rho * (vel_n + vel_t) ;
+    N_out[B[8]] = N_out[B[5]] + 0.5 * (N_out[B[1]] - N_out[B[2]]) + 1./6. * rho * (vel_n - vel_t) ;
 }
 
-kernel void velocity_bc_bottom(global double* N_out, global int* idx, 
-double vel_n, double vel_t){
+kernel void velocity_bc_bottom(global double *N_out, global int *idx, 
+  double vel_n, double vel_t){
     int i = get_global_id(0);
     int xy = idx[i];
-    
-    int indexes[9];
-
-    for (int q = 0; q<9; q++){
-        indexes[q] = xyq(xy, bc_vel_bottom[q]);
+    int B[lattice_q];
+    for (int q = 0 ; q < lattice_q ; q = q + 1){
+        B[q] = xyq(xy, bc_vel_bottom[q]);
     }
-    // Read from all required indices using 2D indexing
-    double n0 = N_out[indexes[0]];
-    double n1 = N_out[indexes[1]];
-    double n2 = N_out[indexes[2]];
-    double n3 = N_out[indexes[3]];
-    double n4 = N_out[indexes[4]];
-    double n5 = N_out[indexes[5]];
-    
-    
-    double divisor = (1.0 - vel_n);
-    divisor = (fabs(divisor) > 1e-10) ? divisor : 1e-10;
-    double rho = (n0 + n1 + n2 + 2.0 * (n3 + n4 + n5)) / divisor;
-    
-    // Write to output indices
-    N_out[indexes[6]] = n3 + 2.0 / 3.0 * rho * vel_n;
-    N_out[indexes[7]] = n4 - 0.5 * (n1 - n2) + (1.0 / 6.0) * rho * (vel_n + vel_t);
-    N_out[indexes[8]] = n5 + 0.5 * (n1 - n2) + (1.0 / 6.0) * rho * (vel_n - vel_t);
+    double rho = N_out[B[0]] + N_out[B[1]] + N_out[B[2]] + 2 * (N_out[B[3]] + N_out[B[4]] +N_out[B[5]] );
+    rho = rho / (1 - vel_n);
+    N_out[B[6]] = N_out[B[3]] + 2 * (rho * vel_n)/3;
+    N_out[B[7]] = N_out[B[4]] - 0.5 * (N_out[B[1]] - N_out[B[2]]) + 1./6. * rho * (vel_n + vel_t) ;
+    N_out[B[8]] = N_out[B[5]] + 0.5 * (N_out[B[1]] - N_out[B[2]]) + 1./6. * rho * (vel_n - vel_t) ;
 }
-
 kernel void collide(global double* N_in, global double* N_out, global double* tau){
     int xy = get_global_id(0);
 
@@ -104,3 +76,10 @@ kernel void collide(global double* N_in, global double* N_out, global double* ta
 }
 
 
+kernel void compute_rho(global double* rho, int index, global double* N){
+    double sum = 0;
+    for (int q=0; q<lattice_q; q++){
+        sum += N[xyq(index,q)];
+    }
+    rho[0] = sum;
+}
