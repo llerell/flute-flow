@@ -57,15 +57,9 @@ kernel void collide(global double *N, global double *tau){
         rho += N[ i ];
         u += N[ i] *lattice_cx[q] ;
         v += N[ i] *lattice_cy[q] ;
-//            if (P == 0){
-//        printf("<CL> !%d! u = %e, N = %e, l=%d p=%e\n", q, u, N[i], lattice_cx[q],  N[i] * lattice_cx[q]);
-//        }
     }
     u /= rho;
     v /= rho;
-//    if (P == 0){
-//        printf("<CL> rho = %e, u = %f, v = %f", rho, u, v);
-//    }
     for(int q = 0 ; q < lattice_q ; q ++){
         double vc = icsq * (v * lattice_cy[q] + u * lattice_cx[q] ) ;
         double neq = rho * lattice_w[q] * ( 1 + vc + vc*vc/2 - icsq/2 * (u*u + v*v) ) ; 
