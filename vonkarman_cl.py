@@ -41,13 +41,8 @@ lattice_w[5:9] = 1./36.
 
 LATTICE_INVCS2 = 3.
 
-<<<<<<< HEAD
 NU = 0.01
 TAU = NU * LATTICE_INVCS2 + 0.5
-=======
-nu = 0.03
-tau = nu * lattice_invcs2 + 0.5
->>>>>>> Thomas
 
 cpt = iter(range(1000000))
 def save_to_vtk(name, rho, u, v):
@@ -72,6 +67,7 @@ def open_image(filename):
     ij_green = [(i, j) for i in range(size_x) for j in range(size_y) if (np.sum(image[i, j, 0:3]) < 275 and image[i, j, 1] > 200)]
     ij_green = np.array(ij_green)
     assert len(ij_green) == 1
+
     green = ij_green[0]
     return size_x, size_y, walls, ij_red, ij_blue, green
 
@@ -164,7 +160,7 @@ def build_cl_obj(source_file):
         prg.build()
     return ctx, queue, prg
 
-def build_cl_buf(ctx, N, P, idx_red, idx_blue, tau_arr):
+def build_cl_buf(ctx, N, P, idx_red, idx_blue, tau_arr, rho_out):
     mf = cl.mem_flags
     N_g = cl.Buffer(ctx, mf.READ_WRITE | mf.COPY_HOST_PTR, hostbuf=N)
     P_g = cl.Buffer(ctx, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=P)
@@ -172,24 +168,20 @@ def build_cl_buf(ctx, N, P, idx_red, idx_blue, tau_arr):
     idx_blue_g = cl.Buffer(ctx, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=idx_blue)
     M_g = cl.Buffer(ctx, mf.READ_WRITE, N.nbytes)
     tau_g = cl.Buffer(ctx, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=tau_arr)
-    return N_g, M_g, P_g, idx_red_g, idx_blue_g, tau_g
+    rho_out_g = cl.Buffer(ctx, mf.WRITE_ONLY, rho_out.nbytes)
+    return N_g, M_g, P_g, idx_red_g, idx_blue_g, tau_g, rho_out_g
 
 def get_velocity(t):
     vel = min(t / 2000., 0.5) * 0.05
     velx = 0
-    """if (t > 5000 and t < 7000):
-        velx = 0.05 * np.sin((t - 5000.)/2000. * np.pi)"""
     return np.float64(vel), np.float64(velx)
 
 if __name__ == "__main__":
-<<<<<<< HEAD
-    N_iter = 200000
-    size_x, size_y, walls, ij_red, ij_blue, green = open_image("simu_r.png")
-=======
-    size_x, size_y, walls, ij_red, ij_blue = open_image("simu_r2.png")
->>>>>>> Thomas
+    N_iter = 600
+    size_x, size_y, walls, ij_red, ij_blue, green = open_image("simu_r2.png")
     iwalls = walls[:, 0]
     jwalls = walls[:, 1]
+    rho_out = np.zeros(N_iter)
 
     idx_red  = idxnoq(ij_red [:, 0], ij_red [:, 1]).astype(np.int32)
     idx_blue = idxnoq(ij_blue[:, 0], ij_blue[:, 1]).astype(np.int32)
@@ -206,13 +198,14 @@ if __name__ == "__main__":
     tau_arr = (NU * LATTICE_INVCS2 + 0.5) * np.ones((size_x, size_y, LATTICE_Q))
     tau_arr[:, size_y - 20:, :] = (0.1 * LATTICE_INVCS2 + 0.5)
     tau_arr[:, 0:5, :] = (0.1 * LATTICE_INVCS2 + 0.5)
+    
 
 
     N = N + np.random.rand(*N.shape)*0.001 #pour le test et pour éviter de diviser par 0
 
     source = "flute.cl"
     ctx, queue, prg = build_cl_obj(source)
-    N_g, M_g, P_g, idx_red_g, idx_blue_g, tau_g = build_cl_buf(ctx, N, P, idx_red, idx_blue, tau_arr)
+    N_g, M_g, P_g, idx_red_g, idx_blue_g, tau_g, rho_out_g = build_cl_buf(ctx, N, P, idx_red, idx_blue, tau_arr, rho_out)
     k_stream = prg.stream
     k_velocity_bc_top = prg.velocity_bc_top
     k_velocity_bc_bottom = prg.velocity_bc_bottom
@@ -228,17 +221,14 @@ if __name__ == "__main__":
         k_velocity_bc_bottom(queue, (len(idx_red),), None, M_g, idx_red_g, - vel, np.float64(0.))
         k_collide(queue, (size_x*size_y,), None, M_g, tau_g)
         N_g, M_g = M_g, N_g
+        k_save_rho(queue, (1,), None, N_g, idx_green, np.int32(t), rho_out_g)
 
-
-<<<<<<< HEAD
-        if (t % 100 == 0):
-            k_save_rho(queue, (size_x*size_y,), None, N_g, micro_index, )
+        if (t % 200 == 0):
+            
             cl.enqueue_copy(queue, N, N_g)
             rho, u, v = flow_properties(N)
-=======
-        if (t % 200 == 0):
-            cl.enqueue_copy(queue, M, M_g)
-            rho, u, v = flow_properties(M)
->>>>>>> Thomas
             save_to_vtk("test", rho, u, v)
             print(f"step {t}")
+
+    cl.enqueue_copy(queue, rho_out, rho_out_g)
+    get_sound.density_to_wav_file(rho_out, "output.wav")

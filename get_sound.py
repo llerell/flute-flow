@@ -7,5 +7,9 @@ def density_to_pressure(rho):
 def pressure_to_wav_file(p, filename):
     p = p - np.min(p)
     p = p / np.max(p)
-    p = (p * 65535).astype(np.uint16)
+    p = np.floor(p * 32767).astype(np.int16)
     sp.io.wavfile.write(filename, 44100, p)
+
+def density_to_wav_file(rho, filename):
+    p = density_to_pressure(rho)
+    pressure_to_wav_file(p, filename)

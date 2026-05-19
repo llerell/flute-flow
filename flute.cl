@@ -27,7 +27,9 @@ kernel void velocity_bc_top(global double *N_out, global int *idx,
     }
     double rho = N_out[B[0]] + N_out[B[1]] + N_out[B[2]] \
      + 2 * (N_out[B[3]] + N_out[B[4]] +N_out[B[5]] );
-    rho = rho / (1 - vel_n);
+    double diviseur = 1 - vel_n;
+    diviseur = fmax(diviseur, 1e-8); 
+    rho = rho / diviseur;
     N_out[B[6]] = N_out[B[3]] + 2 * (rho * vel_n)/3;
     N_out[B[7]] = N_out[B[4]] - 0.5 * (N_out[B[1]] - N_out[B[2]]) + 1./6. * rho * (vel_n + vel_t) ;
     N_out[B[8]] = N_out[B[5]] + 0.5 * (N_out[B[1]] - N_out[B[2]]) + 1./6. * rho * (vel_n - vel_t) ;
@@ -58,6 +60,7 @@ kernel void collide(global double *N, global double *tau){
         u += N[ i] *lattice_cx[q] ;
         v += N[ i] *lattice_cy[q] ;
     }
+    rho = fmax(rho, 1e-8);
     u /= rho;
     v /= rho;
     for(int q = 0 ; q < lattice_q ; q ++){
@@ -68,10 +71,9 @@ kernel void collide(global double *N, global double *tau){
     }
 }
 
-kernel void save_rho(global double *N, int index){
-    double rho = 0.;
+kernel void save_rho(global double *N, int index, int t, global double *rho_out){
     for(int q = 0; q < lattice_q ; q += 1){
         int i = xy_q_to_xyq(index, q) ;
-        rho += N[ i ];
+        rho_out[t] += N[ i ];
     }
 }
