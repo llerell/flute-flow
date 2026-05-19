@@ -40,7 +40,7 @@ lattice_w[5:9] = 1./36.
 
 lattice_invcs2 = 3.
 
-nu = 0.01
+nu = 0.03
 tau = nu * lattice_invcs2 + 0.5
 
 cpt = iter(range(1000000))
@@ -182,14 +182,14 @@ def build_cl_buf(ctx, N, P, idx_red, idx_blue, tau):
     return N_g, M_g, P_g, idx_red_g, idx_blue_g, tau_g
 
 def get_velocity(t):
-    vel = min(t / 5000., 1.) * 0.05
+    vel = min(t / 2000., 0.5) * 0.05
     velx = 0
-    if (t > 5000 and t < 7000):
-        velx = 0.05 * np.sin((t - 5000.)/2000. * np.pi)
+    """if (t > 5000 and t < 7000):
+        velx = 0.05 * np.sin((t - 5000.)/2000. * np.pi)"""
     return np.float64(vel), np.float64(velx)
 
 if __name__ == "__main__":
-    size_x, size_y, walls, ij_red, ij_blue = open_image("simu_r.png")
+    size_x, size_y, walls, ij_red, ij_blue = open_image("simu_r2.png")
     iwalls = walls[:, 0]
     jwalls = walls[:, 1]
 
@@ -210,7 +210,7 @@ if __name__ == "__main__":
     tau[:, 0:5, :] = (0.1 * lattice_invcs2 + 0.5)
 
 
-    N = N + np.random.rand(*N.shape)*0.001 #pour le test
+    N = N + np.random.rand(*N.shape)*0.001 #pour le test et pour éviter de diviser par 0
 
     source = "flute.cl"
     ctx, queue, prg = build_cl_obj(source)
@@ -246,7 +246,7 @@ if __name__ == "__main__":
         N_g, M_g = M_g, N_g
 
 
-        if (t % 100 == 0):
+        if (t % 200 == 0):
             cl.enqueue_copy(queue, M, M_g)
             rho, u, v = flow_properties(M)
             save_to_vtk("test", rho, u, v)
