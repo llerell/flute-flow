@@ -3,6 +3,7 @@ import imageio.v2 as imageio
 from evtk import hl as vtkhl
 import pyopencl as cl
 import os
+import get_sound
 os.environ['PYOPENCL_CTX'] = '0'
 
 LATTICE_D = 2
@@ -177,13 +178,13 @@ def get_velocity(t):
 
 if __name__ == "__main__":
     N_iter = 200000
-    size_x, size_y, walls, ij_red, ij_blue, micro_index = open_image("simu_r.png")
+    size_x, size_y, walls, ij_red, ij_blue, green = open_image("simu_r.png")
     iwalls = walls[:, 0]
     jwalls = walls[:, 1]
 
     idx_red  = idxnoq(ij_red [:, 0], ij_red [:, 1]).astype(np.int32)
     idx_blue = idxnoq(ij_blue[:, 0], ij_blue[:, 1]).astype(np.int32)
-
+    idx_green = idxnoq(green[0], green[1]).astype(np.int32)
     rho = np.ones((size_x, size_y))
     u = 0.0 * np.ones((size_x, size_y))
     v = 0.0 * np.ones((size_x, size_y))
@@ -207,6 +208,7 @@ if __name__ == "__main__":
     k_velocity_bc_top = prg.velocity_bc_top
     k_velocity_bc_bottom = prg.velocity_bc_bottom
     k_collide = prg.collide
+    k_save_rho = prg.save_rho
     M = np.zeros_like(N)
 
     for t in range(N_iter + 1):
@@ -220,7 +222,8 @@ if __name__ == "__main__":
 
 
         if (t % 100 == 0):
-            cl.enqueue_copy(queue, M, M_g)
-            rho, u, v = flow_properties(M)
+            k_save_rho(queue, (size_x*size_y,), None, N_g, micro_index, )
+            cl.enqueue_copy(queue, N, N_g)
+            rho, u, v = flow_properties(N)
             save_to_vtk("test", rho, u, v)
             print(f"step {t}")

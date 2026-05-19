@@ -67,3 +67,11 @@ kernel void collide(global double *N, global double *tau){
         N[ i ] += (neq - N[i])/tau[ i ];
     }
 }
+
+kernel void save_rho(global double *N, int index){
+    double rho = 0.;
+    for(int q = 0; q < lattice_q ; q += 1){
+        int i = xy_q_to_xyq(index, q) ;
+        rho += N[ i ];
+    }
+}
