@@ -63,7 +63,11 @@ def open_image(filename):
     ij_red  = np.array(ij_red)
     ij_blue = [(i, j) for i in range(size_x) for j in range(size_y) if (np.sum(image[i, j, 0:3]) < 275 and image[i, j, 2] > 200)]
     ij_blue = np.array(ij_blue)
-    return size_x, size_y, walls, ij_red, ij_blue
+    ij_green = [(i, j) for i in range(size_x) for j in range(size_y) if (np.sum(image[i, j, 0:3]) < 275 and image[i, j, 1] > 200)]
+    ij_green = np.array(ij_green)
+    assert len(ij_green) == 1
+    green = ij_green[0]
+    return size_x, size_y, walls, ij_red, ij_blue, green
 
 
 def equilibrium_from_moments(rho, u, v):
@@ -137,10 +141,7 @@ bc_vel_bottom = [0, 1, 3, 2, 6, 5, 4, 8, 7]
 def velocity_bc(N, idx, bc_vel, un, ut):
     
     N2D = np.reshape(N, (size_x * size_y, LATTICE_Q))
-    #print( ">", N2D[idx[12], bc_vel[0]] )
-    N1 = np.reshape(N, size_x * size_y * LATTICE_Q)
-    #print( ">>", N1[ idx[12]*LATTICE_Q + 0])
-    
+
     
     rho = (N2D[idx, bc_vel[0]] + N2D[idx, bc_vel[1]] + N2D[idx, bc_vel[2]] + 2 * (N2D[idx, bc_vel[3]] + N2D[idx, bc_vel[4]] + N2D[idx, bc_vel[5]]))/(1. - un)
     N2D[idx, bc_vel[6]] = N2D[idx, bc_vel[3]] + 2./3. * rho * un
@@ -157,14 +158,14 @@ def build_cl_obj(source_file):
         prg.build()
     return ctx, queue, prg
 
-def build_cl_buf(ctx, N, P, idx_red, idx_blue, TAU):
+def build_cl_buf(ctx, N, P, idx_red, idx_blue, tau_arr):
     mf = cl.mem_flags
     N_g = cl.Buffer(ctx, mf.READ_WRITE | mf.COPY_HOST_PTR, hostbuf=N)
     P_g = cl.Buffer(ctx, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=P)
     idx_red_g = cl.Buffer(ctx, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=idx_red)
     idx_blue_g = cl.Buffer(ctx, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=idx_blue)
     M_g = cl.Buffer(ctx, mf.READ_WRITE, N.nbytes)
-    tau_g = cl.Buffer(ctx, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=TAU)
+    tau_g = cl.Buffer(ctx, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=tau_arr)
     return N_g, M_g, P_g, idx_red_g, idx_blue_g, tau_g
 
 def get_velocity(t):
@@ -175,7 +176,8 @@ def get_velocity(t):
     return np.float64(vel), np.float64(velx)
 
 if __name__ == "__main__":
-    size_x, size_y, walls, ij_red, ij_blue = open_image("simu_r.png")
+    N_iter = 200000
+    size_x, size_y, walls, ij_red, ij_blue, micro_index = open_image("simu_r.png")
     iwalls = walls[:, 0]
     jwalls = walls[:, 1]
 
@@ -207,7 +209,7 @@ if __name__ == "__main__":
     k_collide = prg.collide
     M = np.zeros_like(N)
 
-    for t in range(200001):
+    for t in range(N_iter + 1):
         vel, velx = get_velocity(t)
 
         k_stream(queue, (size_x*size_y*LATTICE_Q,), None, M_g, N_g, P_g)
