@@ -40,8 +40,7 @@ lattice_w[5:9] = 1./36.
 
 lattice_invcs2 = 3.
 
-nu = 0.03
-tau = nu * lattice_invcs2 + 0.5
+nu = 0.0001
 
 cpt = iter(range(1000000))
 def save_to_vtk(name, rho, u, v):
@@ -182,7 +181,7 @@ def build_cl_buf(ctx, N, P, idx_red, idx_blue, tau):
     return N_g, M_g, P_g, idx_red_g, idx_blue_g, tau_g
 
 def get_velocity(t):
-    vel = min(t / 2000., 0.5) * 0.05
+    vel = min(t / 2000., 1) * 0.0001
     velx = 0
     """if (t > 5000 and t < 7000):
         velx = 0.05 * np.sin((t - 5000.)/2000. * np.pi)"""
@@ -206,11 +205,14 @@ if __name__ == "__main__":
     P = wall_permutation(P, iwalls, jwalls)
 
     tau = (nu * lattice_invcs2 + 0.5) * np.ones((size_x, size_y, lattice_Q))
-    tau[:, size_y - 20:, :] = (0.1 * lattice_invcs2 + 0.5)
-    tau[:, 0:5, :] = (0.1 * lattice_invcs2 + 0.5)
+    for i, j in ij_blue:
+        for i1 in range(-10, 11):
+            for j1 in range(-10, 11):
+                tau[i + i1, j + j1, :] = (0.1 * lattice_invcs2 + 0.5)
+    #tau[:, size_y - 20:, :] = (0.1 * lattice_invcs2 + 0.5)
+    #tau[:, 0:5, :] = (0.1 * lattice_invcs2 + 0.5)
 
-
-    N = N + np.random.rand(*N.shape)*0.001 #pour le test et pour éviter de diviser par 0
+    #N = N + np.random.rand(*N.shape)*0.001 pour le test et pour éviter de diviser par 0
 
     source = "flute.cl"
     ctx, queue, prg = build_cl_obj(source)
@@ -222,7 +224,7 @@ if __name__ == "__main__":
     
     M = np.zeros_like(N)
 
-    for t in range(200001):
+    for t in range(50000001):
         vel, velx = get_velocity(t)
 
         k_stream(queue, (size_x*size_y*lattice_Q,), None, M_g, N_g, P_g)
@@ -246,7 +248,7 @@ if __name__ == "__main__":
         N_g, M_g = M_g, N_g
 
 
-        if (t % 200 == 0):
+        if (t % 400000 == 0):
             cl.enqueue_copy(queue, M, M_g)
             rho, u, v = flow_properties(M)
             save_to_vtk("test", rho, u, v)
