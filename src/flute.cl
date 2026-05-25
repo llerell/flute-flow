@@ -28,7 +28,6 @@ kernel void velocity_bc_top(global double *N_out, global int *idx,
     double rho = N_out[B[0]] + N_out[B[1]] + N_out[B[2]] \
      + 2 * (N_out[B[3]] + N_out[B[4]] +N_out[B[5]] );
     double diviseur = 1 - vel_n;
-    diviseur = fmax(diviseur, 1e-8); 
     rho = rho / diviseur;
     N_out[B[6]] = N_out[B[3]] + 2 * (rho * vel_n)/3;
     N_out[B[7]] = N_out[B[4]] - 0.5 * (N_out[B[1]] - N_out[B[2]]) + 1./6. * rho * (vel_n + vel_t) ;
@@ -44,8 +43,7 @@ kernel void velocity_bc_bottom(global double *N_out, global int *idx,
         B[q] = xy_q_to_xyq(xy, bc_vel_bottom[q]);
     }
     double rho = N_out[B[0]] + N_out[B[1]] + N_out[B[2]] + 2 * (N_out[B[3]] + N_out[B[4]] +N_out[B[5]] );
-    double diviseur = 1 - vel_n;
-    diviseur = fmax(diviseur, 1e-8); 
+    double diviseur = 1 - vel_n; 
     rho = rho / diviseur;
     N_out[B[6]] = N_out[B[3]] + 2 * (rho * vel_n)/3;
     N_out[B[7]] = N_out[B[4]] - 0.5 * (N_out[B[1]] - N_out[B[2]]) + 1./6. * rho * (vel_n + vel_t) ;

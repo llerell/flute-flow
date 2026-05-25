@@ -211,7 +211,7 @@ def main():
     for i, j in ij_blue:
         for i1 in range(-10, 11):
             for j1 in range(-10, 11):
-                tau_arr[i + i1, j + j1, :] = (0.01 * LATTICE_INVCS2 + 0.5)
+                tau_arr[i + i1, j + j1, :] = (0.1 * LATTICE_INVCS2 + 0.5)
 
 
     N = N + np.random.rand(*N.shape)*0.001 # pour briser la symétrie et éviter les artefacts
