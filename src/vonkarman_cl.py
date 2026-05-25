@@ -43,7 +43,7 @@ lattice_w[5:9] = 1./36.
 
 LATTICE_INVCS2 = 3.
 
-NU = 0.01
+NU = 0.005
 TAU = NU * LATTICE_INVCS2 + 0.5
 
 cpt = iter(range(1000000))
@@ -182,7 +182,7 @@ def build_cl_buf(ctx, N, P, idx_red, idx_blue, tau_arr, rho_out):
     return N_g, M_g, P_g, idx_red_g, idx_blue_g, tau_g, rho_out_g
 
 def get_velocity(t):
-    vel = min(t / 2000., 1) * 0.0001
+    vel = min(t / 2000., 1) * 0.005
     velx = 0
     return np.float64(vel), np.float64(velx)
 
@@ -211,7 +211,7 @@ def main():
     for i, j in ij_blue:
         for i1 in range(-10, 11):
             for j1 in range(-10, 11):
-                tau_arr[i + i1, j + j1, :] = (0.1 * LATTICE_INVCS2 + 0.5)
+                tau_arr[i + i1, j + j1, :] = (0.01 * LATTICE_INVCS2 + 0.5)
 
 
     N = N + np.random.rand(*N.shape)*0.001 # pour briser la symétrie et éviter les artefacts
