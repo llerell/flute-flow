@@ -18,8 +18,7 @@ pip install -r requirements.txt
 ## Running
 
 ```bash
-cd src
-python vonkarman_cl.py
+python3 src/vonkarman_cl.py
 ```
 
 Outputs VTK files to `images/` and WAV to `sounds/output.wav`. Check the console for progress (prints every 400 steps).
