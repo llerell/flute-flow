@@ -159,7 +159,7 @@ def velocity_bc(N, idx, bc_vel, un, ut):
 """
 
 def build_cl_obj(source_file):
-    ctx = cl.create_some_context(False)
+    ctx = cl.create_some_context(0)
     queue = cl.CommandQueue(ctx)
     with open(source_file) as f:
         source = f.read()
@@ -179,7 +179,7 @@ def build_cl_buf(ctx, N, P, idx_red, idx_blue, tau_arr, rho_out):
     return N_g, M_g, P_g, idx_red_g, idx_blue_g, tau_g, rho_out_g
 
 def get_velocity(t):
-    vel = min(t / 2000., 0.5) * 0.05
+    vel = min(t / 2000., 1) * 0.0001
     velx = 0
     return np.float64(vel), np.float64(velx)
 
@@ -238,6 +238,7 @@ def main():
             rho, u, v = flow_properties(N)
             if np.any(np.isnan(rho)):
                 print("NaN detected, stopping simulation.")
+                print("NaN detected at index (ij):", np.argwhere(np.isnan(rho)))
                 break
             save_to_vtk("test", rho, u, v, size_x, size_y)
             print(f"step {t}")
