@@ -49,6 +49,9 @@ TAU = NU * LATTICE_INVCS2 + 0.5
 cpt = iter(range(1000000))
 
 def save_to_vtk(name, rho, u, v, size_x, size_y):
+    if not Path("images").exists():
+        Path("images").mkdir(parents=True, exist_ok=True)
+        
     u   = np.reshape(u  , (size_x, size_y, 1), order='C')
     v   = np.reshape(v  , (size_x, size_y, 1), order='C')
     rho = np.reshape(rho, (size_x, size_y, 1), order='C')
@@ -184,7 +187,7 @@ def get_velocity(t):
     return np.float64(vel), np.float64(velx)
 
 def main():
-    N_iter = 100_000
+    N_iter = 10_000_000
     sound_record_freq = 66
 
     size_x, size_y, walls, ij_red, ij_blue, green = open_image(Path("assets") / "simu_r2.png")

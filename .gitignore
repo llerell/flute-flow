@@ -2,10 +2,9 @@ MusSim-env/
 images/
 .vscode/
 numpy_correction_VK/
-test.sh
-scripts/
 *.log
 *.pyc
 __pycache__/
 */__pycache__/
 sounds/
+.gitignore

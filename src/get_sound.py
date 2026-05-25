@@ -6,8 +6,8 @@ def density_to_pressure(rho):
     return rho - np.ones_like(rho)
 
 def pressure_to_wav_file(p, path):
-    p = p - np.min(p)
-    p = p / np.max(p)
+    p = p - np.mean(p)
+    p = p / np.max(np.abs(p))
     p = np.floor(p * 32767).astype(np.int16)
     path = Path(path)
     print(f"Writing wav file to: {path.resolve()}")
