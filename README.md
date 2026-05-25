@@ -28,8 +28,8 @@ Outputs VTK files to `images/` and WAV to `sounds/output.wav`. Check the console
 Edit `src/vonkarman_cl.py`:
 
 - `NU` - viscosity (default 0.01). Higher = more stable but smoother
-- `N_iter` - number of iterations (default 100,000)  
-- `get_velocity()` - inlet velocity. Currently ramps from 0 to 0.025
+- `N_iter` - number of iterations (default 10,000,000)  
+- `get_velocity()` - inlet velocity. Currently ramps from 0 to 0.005
 
 Geometry is defined in `assets/simu_r2.png`: red pixels are inlet, blue are outlet, black is walls, green is where audio gets sampled.
 
